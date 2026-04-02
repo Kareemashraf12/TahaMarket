@@ -1,0 +1,49 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36603.0 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TahaMarket.API", "TahaMarket.API\TahaMarket.API.csproj", "{79967A46-B203-4466-B288-7F9E1ACB745B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TahaMarket.Application", "TahaMarket.Application\TahaMarket.Application.csproj", "{94BF46F4-6DE2-42CF-91C0-21DB66D2C82E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TahaMarket.Domain", "TahaMarket.Domain\TahaMarket.Domain.csproj", "{61261539-68B3-470A-91AD-4F632C8E6C3B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TahaMarket.Infrastructure", "TahaMarket.Infrastructure\TahaMarket.Infrastructure.csproj", "{28FAF146-96DA-45C0-9345-90CFF182D418}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TahaMarket.Tests", "TahaMarket.Tests\TahaMarket.Tests.csproj", "{C772634E-1C15-4B81-B362-FCCE5C3C4D9A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{79967A46-B203-4466-B288-7F9E1ACB745B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79967A46-B203-4466-B288-7F9E1ACB745B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79967A46-B203-4466-B288-7F9E1ACB745B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79967A46-B203-4466-B288-7F9E1ACB745B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{94BF46F4-6DE2-42CF-91C0-21DB66D2C82E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{94BF46F4-6DE2-42CF-91C0-21DB66D2C82E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{94BF46F4-6DE2-42CF-91C0-21DB66D2C82E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{94BF46F4-6DE2-42CF-91C0-21DB66D2C82E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{61261539-68B3-470A-91AD-4F632C8E6C3B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{61261539-68B3-470A-91AD-4F632C8E6C3B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{61261539-68B3-470A-91AD-4F632C8E6C3B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{61261539-68B3-470A-91AD-4F632C8E6C3B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{28FAF146-96DA-45C0-9345-90CFF182D418}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{28FAF146-96DA-45C0-9345-90CFF182D418}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{28FAF146-96DA-45C0-9345-90CFF182D418}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{28FAF146-96DA-45C0-9345-90CFF182D418}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C772634E-1C15-4B81-B362-FCCE5C3C4D9A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C772634E-1C15-4B81-B362-FCCE5C3C4D9A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C772634E-1C15-4B81-B362-FCCE5C3C4D9A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C772634E-1C15-4B81-B362-FCCE5C3C4D9A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D0E08522-E6B7-4EEC-BC07-4143A5588A87}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,38 @@
+﻿using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
+
+namespace TahaMarket.Application.DTOs
+{
+    
+
+    public class CreateStoreRequest
+    {
+        [Required]
+        public string Name { get; set; }
+
+        [Required]
+        public string Address { get; set; }
+        [Required] 
+         public string Password { get; set; }
+        public string PhoneNumber { get; set; }
+        public string? Email { get; set; } // Optional
+
+
+        [Required]
+        public double Latitude { get; set; }
+
+        [Required]
+        public double Longitude { get; set; }
+
+        [Required]
+        public decimal MinimumOrderAmount { get; set; }
+
+        [Required]
+        public string Type { get; set; }
+
+
+
+        [Required]
+        public IFormFile Image { get; set; }
+    }
+}
