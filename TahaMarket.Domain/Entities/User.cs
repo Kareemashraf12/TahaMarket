@@ -10,15 +10,11 @@ public class User
     public string? Name { get; set; }
     public string? Email { get; set; }
 
-    
     public string UserType { get; set; } = "Customer";
 
     public string? RefreshToken { get; set; }
     public DateTime? RefreshTokenExpiry { get; set; }
+    public bool IsPhoneVerified { get; set; } = false;
 
-    
     public ICollection<UserAddress> Addresses { get; set; } = new List<UserAddress>();
-
-
-    public ICollection<CreateRatingRequest> Ratings { get; set; } = new List<CreateRatingRequest>();
 }

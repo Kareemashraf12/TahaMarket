@@ -24,6 +24,7 @@
   <ItemGroup>
     <Folder Include="Middleware\" />
     <Folder Include="Extensions\" />
+    <Folder Include="Properties\PublishProfiles\" />
     <Folder Include="wwwroot\images\products\" />
     <Folder Include="wwwroot\images\stores\" />
   </ItemGroup>

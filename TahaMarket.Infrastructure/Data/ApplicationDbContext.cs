@@ -22,6 +22,8 @@ namespace TahaMarket.Infrastructure.Data
         public DbSet<StoreRating> StoreRatings { get; set; }
         public DbSet<ProductRating> ProductRatings { get; set; }
 
+        
+
         // ------------------- Model Creating -------------------
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

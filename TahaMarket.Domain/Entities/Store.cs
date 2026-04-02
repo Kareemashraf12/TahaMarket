@@ -15,7 +15,7 @@
     public decimal MinimumOrderAmount { get; set; }
     public string Type { get; set; }
 
-    // 🔥 مهم جدا
+    
     public string? RefreshToken { get; set; }
     public DateTime RefreshTokenExpiry { get; set; }
 

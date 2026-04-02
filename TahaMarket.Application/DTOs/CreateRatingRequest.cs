@@ -8,6 +8,7 @@ namespace TahaMarket.Domain.Entities
 {
     public class CreateRatingRequest
     {
+       
         public int Value { get; set; } // 1 → 5
         public string? Comment { get; set; }
     }

@@ -1,13 +1,14 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using System.Globalization;
+using System.Text;
+using System.Text.Json.Serialization;
 using TahaMarket.Application.Services;
 using TahaMarket.Infrastructure.Data;
 using TahaMarket.Infrastructure.Hubs;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
-using System.Text.Json.Serialization;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +21,7 @@ builder.Services.AddScoped<CategoryService>();
 builder.Services.AddScoped<RatingService>();
 builder.Services.AddScoped<ImageService>();
 builder.Services.AddScoped<ProductService>();
+
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: false);
 
@@ -142,10 +144,11 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-    //dbContext.Database.Migrate();
+    dbContext.Database.Migrate();
 
-    
+
     SeedData.EnsureAdminExists(dbContext);
 }
+//app.MapGet("/", () => "Server is working ");
 
 app.Run();
