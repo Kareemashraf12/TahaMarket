@@ -41,7 +41,7 @@ builder.Services.AddLocalization(options => options.ResourcesPath = "Resources")
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ------------------- JWT -------------------
+// ------------------- JWT ------------------
 
 builder.Services.AddAuthentication(options =>
 {
