@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
 using TahaMarket.Application.Services;
+using TahaMarket.Application.Services.Common;
 using TahaMarket.Infrastructure.Data;
 using TahaMarket.Infrastructure.Hubs;
 
@@ -21,6 +22,16 @@ builder.Services.AddScoped<CategoryService>();
 builder.Services.AddScoped<RatingService>();
 builder.Services.AddScoped<ImageService>();
 builder.Services.AddScoped<ProductService>();
+builder.Services.AddScoped<OtpService>();
+builder.Services.AddScoped<UserService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<FileUrlService>();
+builder.Services.AddScoped<DeliveryService>();
+builder.Services.AddScoped<FileUrlService>();
+builder.Services.AddScoped<DistanceService>();
+builder.Services.AddScoped<DeliveryPricingService>();
+builder.Services.AddScoped<UserAddressService>();
+builder.Services.AddScoped<OrderService>();
 
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: false);

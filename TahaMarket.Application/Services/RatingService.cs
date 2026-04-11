@@ -11,7 +11,7 @@ public class RatingService
         _context = context;
     }
 
-    // 🔥 Rate Store
+    //  Rate Store
     public async Task RateStore(Guid storeId, Guid userId, CreateRatingRequest request)
     {
         var exists = await _context.StoreRatings
@@ -38,7 +38,7 @@ public class RatingService
         await _context.SaveChangesAsync();
     }
 
-    // 🔥 Rate Product
+    //  Rate Product
     public async Task RateProduct(Guid productId, Guid userId, CreateRatingRequest request)
     {
         var exists = await _context.ProductRatings
@@ -65,7 +65,7 @@ public class RatingService
         await _context.SaveChangesAsync();
     }
 
-    // 🔥 Get Store Rating
+    //  Get Store Rating
     public async Task<object> GetStoreRating(Guid storeId)
     {
         var ratings = await _context.StoreRatings

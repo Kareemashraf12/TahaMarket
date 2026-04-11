@@ -1,4 +1,6 @@
-﻿public class Store
+﻿using TahaMarket.Domain.Entities;
+
+public class Store
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -13,11 +15,12 @@
     public double Longitude { get; set; }
 
     public decimal MinimumOrderAmount { get; set; }
-    public string Type { get; set; }
+    //public string Type { get; set; }
 
     
     public string? RefreshToken { get; set; }
     public DateTime RefreshTokenExpiry { get; set; }
 
     public ICollection<Category> Categories { get; set; }
+    public virtual List<Order> Orders { get; set; } = new List<Order>();
 }

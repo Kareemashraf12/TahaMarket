@@ -1,118 +1,489 @@
-﻿using TahaMarket.Infrastructure.Data;
-using TahaMarket.Domain.Entities;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using TahaMarket.Application.DTOs;
+using TahaMarket.Application.Services.Common;
+using TahaMarket.Domain.Entities;
+using TahaMarket.Infrastructure.Data;
 
 public class AuthService
 {
     private readonly ApplicationDbContext _context;
     private readonly JwtService _jwt;
+    private readonly OtpService _otpService;
+    private readonly FileUrlService _fileUrl;
 
-    public AuthService(ApplicationDbContext context, JwtService jwt)
+    public AuthService(ApplicationDbContext context, JwtService jwt, OtpService otpService , FileUrlService fileUrl)
     {
         _context = context;
         _jwt = jwt;
+        _otpService = otpService;
+        _fileUrl = fileUrl;
     }
 
-    // ------------------- REGISTER -------------------
-    public async Task<AuthResponse?> Register(RegisterRequest request)
+    // REGISTER
+    public async Task<object> Register(RegisterRequest request)
     {
-        var exists = await _context.Users
-            .AnyAsync(u => u.PhoneNumber == request.PhoneNumber);
+        var phone = request.PhoneNumber.Trim();
 
-        if (exists)
-            return null;
+        if (await _context.Users.AnyAsync(u => u.PhoneNumber == phone))
+            return "Phone already exists";
 
         var user = new User
         {
-            PhoneNumber = request.PhoneNumber,
+            PhoneNumber = phone,
             Name = request.Name,
-            Email = request.Email,
+            
             UserType = "Customer",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password)
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            IsVerified = false,
+            ImageUrl = "/images/users/user.png"
         };
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        return await GenerateUserTokens(user);
+        var otp = await _otpService.GenerateOtp(phone);
+
+        return new { message = "OTP sent", code = otp };
     }
 
-    // ------------------- LOGIN (USER + STORE) -------------------
-    public async Task<AuthResponse?> Login(LoginRequest request)
+    // VERIFY
+    public async Task<object?> VerifyOtp(VerifyOtpRequest request)
     {
         var phone = request.PhoneNumber.Trim();
 
+        var valid = await _otpService.VerifyOtp(phone, request.Otp);
+
+        if (!valid)
+            return null;
+
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.PhoneNumber == phone);
+
+        if (user == null)
+            return null;
+
+        user.IsVerified = true;
+        await _context.SaveChangesAsync();
+
+        //  generate token 
+        var tokens = await GenerateUserTokens(user);
+
+        
+        return new
+        {
+            user = new
+            {
+                id = user.Id,
+                name = user.Name,
+                phoneNumber = user.PhoneNumber,
+                imageUrl = _fileUrl.GetFullUrl(user.ImageUrl)
+            },
+            accessToken = tokens.AccessToken,
+            refreshToken = tokens.RefreshToken,
+            expiration = tokens.Expiration
+        };
+    }
+
+    // RESEND OTP
+    public async Task<OtpResponse> ResendRegisterOtp(string phone)
+    {
+        var exists = await _context.Users
+            .AnyAsync(u => u.PhoneNumber == phone && u.IsVerified);
+
+        if (exists)
+        {
+            return new OtpResponse
+            {
+                Success = false,
+                Message = "User already verified"
+            };
+        }
+
+        var code = await _otpService.ResendOtp(phone);
+
+        return new OtpResponse
+        {
+            Success = true,
+            Message = "OTP sent",
+            Code = code
+        };
+    }
+
+    // =========================
+    // VERIFY RESET OTP
+    // =========================
+    public async Task<bool> VerifyResetOtp(string PhoneNumber, string otp)
+    {
+        var valid = await _otpService.VerifyOtp(PhoneNumber, otp);
+
+        if (!valid) return false;
+
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.PhoneNumber == PhoneNumber);
+
+        if (user == null) return false;
+
+        user.CanResetPassword = true;
+        user.ResetAllowedUntil = DateTime.UtcNow.AddMinutes(5);
+
+        await _context.SaveChangesAsync();
+
+        return true;
+    }
+
+
+    // LOGIN
+    public async Task<object?> Login(LoginRequest request)
+    {
+        var phone = request.PhoneNumber.Trim();
+
+        // ================= USER =================
         var user = await _context.Users
             .FirstOrDefaultAsync(u => u.PhoneNumber == phone);
 
         if (user != null)
         {
-            if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-                return null;
+            // Account is not verified
+            if (!user.IsVerified)
+            {
+                return new
+                {
+                    success = false,
+                    message = "Account is not verified. Please verify OTP first",
+                    code = "NOT_VERIFIED"
+                };
+            }
 
-            return await GenerateUserTokens(user);
+            // Password check = false
+            if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+            {
+                return new
+                {
+                    success = false,
+                    message = "Invalid phone number or password"
+                };
+            }
+
+            var tokens = await GenerateUserTokens(user);
+
+            return new
+            {
+                success = true,
+                message = "Login successful",
+                type = "Customer",
+                data = new
+                {
+                    user.Id,
+                    user.Name,
+                    user.PhoneNumber,
+                    ImageUrl = _fileUrl.GetFullUrl(user.ImageUrl),
+                    accessToken = tokens.AccessToken,
+                    refreshToken = tokens.RefreshToken,
+                    expiration = tokens.Expiration
+                }
+            };
         }
 
+        // ================= STORE =================
         var store = await _context.Stores
             .FirstOrDefaultAsync(s => s.PhoneNumber == phone);
 
         if (store != null)
         {
             if (!BCrypt.Net.BCrypt.Verify(request.Password, store.PasswordHash))
-                return null;
+            {
+                return new
+                {
+                    success = false,
+                    message = "Invalid phone number or password"
+                };
+            }
 
-            return await GenerateStoreTokens(store);
+            var tokens = await GenerateStoreTokens(store);
+
+            return new
+            {
+                success = true,
+                message = "Login successful",
+                type = "Store",
+                data = new
+                {
+                    store.Id,
+                    store.Name,
+                    store.PhoneNumber,
+                    store.Address,
+                    ImageUrl = _fileUrl.GetFullUrl(store.ImageUrl),
+                    accessToken = tokens.AccessToken,
+                    refreshToken = tokens.RefreshToken,
+                    expiration = tokens.Expiration
+                }
+            };
         }
 
-        return null;
+        // ================= DELIVERY =================
+        var delivery = await _context.Deliveries
+            .FirstOrDefaultAsync(d => d.PhoneNumber == phone);
+
+        if (delivery != null)
+        {
+            if (!BCrypt.Net.BCrypt.Verify(request.Password, delivery.PasswordHash))
+            {
+                return new
+                {
+                    success = false,
+                    message = "Invalid phone number or password"
+                };
+            }
+
+            var tokens = await GenerateDeliveryTokens(delivery);
+
+            return new
+            {
+                success = true,
+                message = "Login successful",
+                type = "Delivery",
+                data = new
+                {
+                    delivery.Id,
+                    delivery.Name,
+                    delivery.PhoneNumber,
+                    delivery.VehicleType,
+                    delivery.IsAvailable,
+                    delivery.IsOnline,
+                    delivery.CurrentLatitude,
+                    delivery.CurrentLongitude,
+                    ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
+                    delivery.Balance,
+                    accessToken = tokens.AccessToken,
+                    refreshToken = tokens.RefreshToken,
+                    expiration = tokens.Expiration
+                }
+            };
+        }
+
+        // number not found in any table
+        return new
+        {
+            success = false,
+            message = "Invalid phone number or password"
+        };
     }
 
-    // ------------------- USER TOKENS -------------------
+
+
+    // SEND REGISTER OTP
+    public async Task<OtpResult> SendRegisterOtp(string phone)
+    {
+        if (await _context.Users.AnyAsync(u => u.PhoneNumber == phone))
+            return new OtpResult { Success = false, Message = "Phone exists" };
+
+        var code = await _otpService.GenerateOtp(phone);
+
+        return new OtpResult { Success = true, Code = code };
+    }
+
+    // SEND RESET OTP
+    public async Task<OtpResult> SendResetOtp(string phone)
+    {
+        if (!await _context.Users.AnyAsync(u => u.PhoneNumber == phone))
+            return new OtpResult { Success = false, Message = "Phone not found" };
+
+        var code = await _otpService.GenerateOtp(phone);
+
+        return new OtpResult { Success = true, Code = code };
+    }
+
+    // =========================
+    // RESET PASSWORD (NO OTP AGAIN)
+    // =========================
+    public async Task<bool> ResetPassword(ResetPasswordRequest request)
+    {
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.PhoneNumber == request.PhoneNumber);
+
+        if (user == null) return false;
+
+        if (!user.CanResetPassword || user.ResetAllowedUntil < DateTime.UtcNow)
+            return false;
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+
+        //  invalidate
+        user.CanResetPassword = false;
+        user.ResetAllowedUntil = null;
+
+        await _context.SaveChangesAsync();
+
+        return true;
+    }
+
+
+    // =========================
+    // CHANGE PASSWORD (LOGGED IN)
+    // =========================
+    public async Task<bool> ChangePassword(Guid userId, ChangePasswordRequest request)
+    {
+        var user = await _context.Users.FindAsync(userId);
+
+        if (user == null)
+            throw new Exception("User not found");
+
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+            throw new Exception("Current password is incorrect");
+
+        if (BCrypt.Net.BCrypt.Verify(request.NewPassword, user.PasswordHash))
+            throw new Exception("New password must be different");
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+
+        await _context.SaveChangesAsync();
+
+        return true;
+    }
+
+    // TOKENS
     private async Task<AuthResponse> GenerateUserTokens(User user)
     {
-        var accessToken = _jwt.GenerateToken(
-            user.Id.ToString(),
-            user.UserType,
-            user.PhoneNumber
-        );
+        var token = _jwt.GenerateToken(user.Id.ToString(), user.UserType, user.PhoneNumber);
 
-        var refreshToken = Guid.NewGuid().ToString();
+        var refresh = Guid.NewGuid().ToString();
 
-        user.RefreshToken = refreshToken;
+        user.RefreshToken = refresh;
         user.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
 
         await _context.SaveChangesAsync();
 
         return new AuthResponse
         {
-            AccessToken = accessToken,
-            RefreshToken = refreshToken,
+            AccessToken = token,
+            RefreshToken = refresh,
             Expiration = DateTime.UtcNow.AddMinutes(60)
         };
     }
 
-    // ------------------- STORE TOKENS -------------------
     private async Task<AuthResponse> GenerateStoreTokens(Store store)
     {
-        var accessToken = _jwt.GenerateToken(
-            store.Id.ToString(),
-            "Store",
-            store.PhoneNumber
-        );
+        var token = _jwt.GenerateToken(store.Id.ToString(), "Store", store.PhoneNumber);
 
-        var refreshToken = Guid.NewGuid().ToString();
+        var refresh = Guid.NewGuid().ToString();
 
-        store.RefreshToken = refreshToken;
+        store.RefreshToken = refresh;
         store.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
 
         await _context.SaveChangesAsync();
 
         return new AuthResponse
         {
-            AccessToken = accessToken,
-            RefreshToken = refreshToken,
+            AccessToken = token,
+            RefreshToken = refresh,
             Expiration = DateTime.UtcNow.AddMinutes(60)
         };
     }
+
+
+    private async Task<AuthResponse> GenerateDeliveryTokens(Delivery delivery)
+    {
+        var token = _jwt.GenerateToken(delivery.Id.ToString(), "Delivery", delivery.PhoneNumber);
+        var refresh = Guid.NewGuid().ToString();
+        delivery.RefreshToken = refresh;
+        delivery.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+        await _context.SaveChangesAsync();
+        return new AuthResponse { AccessToken = token, RefreshToken = refresh, Expiration = DateTime.UtcNow.AddMinutes(60) };
+    }
+
+    // =========================
+    // REFRESH TOKEN
+    // =========================
+    public async Task<object?> RefreshToken(string refreshToken)
+    {
+        // ================= USER =================
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.RefreshToken == refreshToken && u.RefreshTokenExpiry > DateTime.UtcNow);
+        if (user != null)
+        {
+            var tokens = await GenerateUserTokens(user);
+            return new
+            {
+                type = "User",
+                user = new
+                {
+                    user.Id,
+                    user.Name,
+                    user.PhoneNumber,
+                    ImageUrl = _fileUrl.GetFullUrl(user.ImageUrl)
+                },
+                accessToken = tokens.AccessToken,
+                refreshToken = tokens.RefreshToken,
+                expiration = tokens.Expiration
+            };
+        }
+
+        // ================= STORE =================
+        var store = await _context.Stores.FirstOrDefaultAsync(s => s.RefreshToken == refreshToken && s.RefreshTokenExpiry > DateTime.UtcNow);
+        if (store != null)
+        {
+            var tokens = await GenerateStoreTokens(store);
+            return new
+            {
+                type = "Store",
+                store = new
+                {
+                    store.Id,
+                    store.Name,
+                    store.PhoneNumber,
+                    store.Address,
+                    ImageUrl = _fileUrl.GetFullUrl(store.ImageUrl)
+                },
+                accessToken = tokens.AccessToken,
+                refreshToken = tokens.RefreshToken,
+                expiration = tokens.Expiration
+            };
+        }
+
+        // ================= DELIVERY =================
+        var delivery = await _context.Deliveries.FirstOrDefaultAsync(d => d.RefreshToken == refreshToken && d.RefreshTokenExpiry > DateTime.UtcNow);
+        if (delivery != null)
+        {
+            var tokens = await GenerateDeliveryTokens(delivery);
+            return new
+            {
+                type = "Delivery",
+                delivery = new
+                {
+                    delivery.Id,
+                    delivery.Name,
+                    delivery.PhoneNumber,
+                    delivery.VehicleType,
+                    delivery.IsAvailable,
+                    delivery.IsOnline,
+                    delivery.CurrentLatitude,
+                    delivery.CurrentLongitude,
+                    ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
+                    delivery.Balance
+                },
+                accessToken = tokens.AccessToken,
+                refreshToken = tokens.RefreshToken,
+                expiration = tokens.Expiration
+            };
+        }
+
+        return null;
+    }
+
+    // =========================
+    // LOGOUT
+    // =========================
+    public async Task Logout(Guid userId)
+    {
+        var user = await _context.Users.FindAsync(userId);
+
+        if (user == null)
+            throw new Exception("User not found");
+
+        user.RefreshToken = null;
+        user.RefreshTokenExpiry = null;
+
+        await _context.SaveChangesAsync();
+    }
+
 }

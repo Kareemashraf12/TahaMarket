@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using TahaMarket.Application.DTOs;
+using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
 using TahaMarket.Infrastructure.Data;
 
@@ -7,11 +8,13 @@ public class ProductService
 {
     private readonly ApplicationDbContext _context;
     private readonly ImageService _imageService;
+    private readonly FileUrlService _fileUrl;
 
-    public ProductService(ApplicationDbContext context, ImageService imageService)
+    public ProductService(ApplicationDbContext context, ImageService imageService , FileUrlService fileUrl)
     {
         _context = context;
         _imageService = imageService;
+        _fileUrl = fileUrl;
     }
 
     //  Create Product
@@ -21,7 +24,7 @@ public class ProductService
             .FirstOrDefaultAsync(c => c.Id == request.CategoryId && c.StoreId == storeId);
 
         if (category == null)
-            throw new Exception("Invalid Category");
+            throw new Exception("Category not found or does not belong to store");
 
         var imagePath = await _imageService.SaveImage(request.Image, "images/products");
 
@@ -41,10 +44,25 @@ public class ProductService
             Id = product.Id,
             Name = product.Name,
             Price = product.Price,
-            ImageUrl = product.ImageUrl,
+            ImageUrl = _fileUrl.GetFullUrl(product.ImageUrl),
             CategoryId = product.CategoryId,
             CategoryName = category.Name
         };
+    }
+
+    public async Task<List<ProductResponse>> GetAllProducts()
+    {
+        return await _context.Products
+            .Select(p => new ProductResponse
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Price = p.Price,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+                CategoryId = p.CategoryId,
+                CategoryName = p.Category.Name
+            })
+            .ToListAsync();
     }
 
     //  Get ALL products for Store 
@@ -57,7 +75,7 @@ public class ProductService
                 Id = p.Id,
                 Name = p.Name,
                 Price = p.Price,
-                ImageUrl = p.ImageUrl,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
                 CategoryId = p.CategoryId,
                 CategoryName = p.Category.Name
             })
@@ -75,7 +93,7 @@ public class ProductService
                 Id = p.Id,
                 Name = p.Name,
                 Price = p.Price,
-                ImageUrl = p.ImageUrl,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
                 CategoryId = p.CategoryId,
                 CategoryName = p.Category.Name
             })
@@ -93,7 +111,7 @@ public class ProductService
                 Id = p.Id,
                 Name = p.Name,
                 Price = p.Price,
-                ImageUrl = p.ImageUrl,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
                 CategoryId = p.CategoryId,
                 CategoryName = p.Category.Name
             })
@@ -140,5 +158,153 @@ public class ProductService
 
         _context.Products.Remove(product);
         await _context.SaveChangesAsync();
+    }
+
+    // Random Products for Home Page
+    public async Task<List<object>> GetRandomProducts(int count = 10)
+    {
+        return await _context.Products
+            .OrderBy(r => Guid.NewGuid()) // random
+            .Take(count)
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Price,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+
+                Category = new
+                {
+                    p.Category.Id,
+                    p.Category.Name
+                },
+
+                Store = new
+                {
+                    p.Category.Store.Id,
+                    p.Category.Store.Name
+                }
+            })
+            .ToListAsync<object>();
+    }
+
+
+    //  Get All Products with Pagination
+    public async Task<PaginatedResponse<object>> GetAllProducts(PaginationRequest request)
+    {
+        var query = _context.Products.AsQueryable();
+
+        var totalCount = await query.CountAsync();
+
+        var data = await query
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Price,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+
+                Category = new
+                {
+                    p.Category.Id,
+                    p.Category.Name
+                },
+
+                Store = new
+                {
+                    p.Category.Store.Id,
+                    p.Category.Store.Name
+                }
+            })
+            .ToListAsync<object>();
+
+        return new PaginatedResponse<object>
+        {
+            Page = request.Page,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
+            Data = data
+        };
+    }
+
+    // Get Product With fulter
+    public async Task<PaginatedResponse<object>> GetFilteredProducts(
+    Guid? storeId,
+    Guid? categoryId,
+    PaginationRequest request)
+    {
+        var query = _context.Products.AsQueryable();
+
+        if (storeId != null)
+            query = query.Where(p => p.Category.StoreId == storeId);
+
+        if (categoryId != null)
+            query = query.Where(p => p.CategoryId == categoryId);
+
+        var totalCount = await query.CountAsync();
+
+        var data = await query
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Price,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+                Category = p.Category.Name,
+                Store = p.Category.Store.Name
+            })
+            .ToListAsync<object>();
+
+        return new PaginatedResponse<object>
+        {
+            Page = request.Page,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
+            Data = data
+        };
+    }
+
+    // Search Products by Name
+    public async Task<PaginatedResponse<object>> Search(string text, PaginationRequest request)
+    {
+        var query = _context.Products
+            .Where(p => p.Name.Contains(text));
+
+        var totalCount = await query.CountAsync();
+
+        
+        var products = await query
+            .Include(p => p.Category)
+            .ThenInclude(c => c.Store)
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .ToListAsync();
+
+        
+        var data = products.Select(p => new
+        {
+            id = p.Id,
+            name = p.Name,
+            price = p.Price,
+            imageUrl = _fileUrl.GetFullUrl(p.ImageUrl), 
+            category = p.Category.Name,
+            store = new
+            {
+                id = p.Category.Store.Id,
+                name = p.Category.Store.Name
+            }
+        }).ToList<object>();
+
+        return new PaginatedResponse<object>
+        {
+            Page = request.Page,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
+            Data = data
+        };
     }
 }

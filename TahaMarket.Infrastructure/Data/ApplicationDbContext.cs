@@ -21,8 +21,13 @@ namespace TahaMarket.Infrastructure.Data
 
         public DbSet<StoreRating> StoreRatings { get; set; }
         public DbSet<ProductRating> ProductRatings { get; set; }
-
+        public DbSet<OtpCode> OtpCodes { get; set; }
         public DbSet<Favorite> Favorites { get; set; }
+        public DbSet<Delivery> Deliveries { get; set; }
+        public DbSet<DeliveryOrder> DeliveryOrders { get; set; }
+        public DbSet<DeliveryTransaction> DeliveryTransactions { get; set; }
+        public DbSet<DeliveryRating> DeliveryRatings { get; set; }
+        public DbSet<Notification> Notifications { get; set; }
 
         // ------------------- Model Creating -------------------
 
@@ -79,29 +84,75 @@ namespace TahaMarket.Infrastructure.Data
                 .WithMany(u => u.Addresses)
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-        
 
-        // ------------------- Unique Constraints -------------------
-        modelBuilder.Entity<User>()
+
+            modelBuilder.Entity<Order>()
+                .HasOne(o => o.UserAddress)
+                .WithMany()
+                .HasForeignKey(o => o.AddressId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Order>()
+                .HasOne(o => o.Delivery)
+                .WithMany()
+                .HasForeignKey(o => o.DeliveryId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+
+            // ------------------- Unique Constraints -------------------
+            modelBuilder.Entity<User>()
                 .HasIndex(u => u.PhoneNumber)
                 .IsUnique();
 
-            modelBuilder.Entity<Store>()
+        modelBuilder.Entity<Store>()
                 .HasIndex(s => s.PhoneNumber)
                 .IsUnique();
 
+            modelBuilder.Entity<Favorite>()
+                .HasOne(f => f.User)
+                .WithMany()
+                .HasForeignKey(f => f.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Favorite>()
+                .HasOne(f => f.Product)
+                .WithMany()
+                .HasForeignKey(f => f.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
+            modelBuilder.Entity<OtpCode>()
+            .HasIndex(o => o.PhoneNumber);
+
+
+            modelBuilder.Entity<OtpCode>()
+             .HasIndex(o => o.PhoneNumber);
+
+            modelBuilder.Entity<DeliveryOrder>()
+                .HasIndex(x => x.OrderId);
+
+            modelBuilder.Entity<DeliveryOrder>()
+                .HasIndex(x => x.DeliveryId);
+
+            modelBuilder.Entity<DeliveryTransaction>()
+                .HasIndex(x => x.DeliveryId);
+
+            modelBuilder.Entity<Order>()
+                .Property(o => o.Status)
+                .HasConversion<string>();
+
+
             // ------------------- Admin Seed -------------------
-            modelBuilder.Entity<User>().HasData(new User
-            {
-                Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                Name = "Admin",
-                Email = "krymk9920@gmail.com",
-                PhoneNumber = "01141286090",
-                PasswordHash = "$2a$11$9e.ldSEf8MHdxc5C1fP3jumXJ0Z4PUqeuS7jHa8DRIVxFhAN5bCJK",
-                UserType = "Admin",
-                RefreshToken = null,
-                RefreshTokenExpiry = DateTime.MinValue
-            });
+            //modelBuilder.Entity<User>().HasData(new User
+            //{
+            //        Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            //        Name = "Admin",
+            //        ImageUrl = "/images/users/user.png",
+            //        PhoneNumber = "01141286090",
+            //        PasswordHash = "$2a$11$9e.ldSEf8MHdxc5C1fP3jumXJ0Z4PUqeuS7jHa8DRIVxFhAN5bCJK",
+            //        IsPhoneVerified = true,
+            //        UserType = "Admin",
+            //        RefreshToken = null,
+            //        RefreshTokenExpiry = DateTime.MinValue
+            //});
         }
     }
 }

@@ -15,8 +15,6 @@ namespace TahaMarket.Application.DTOs
         [Required] 
          public string Password { get; set; }
         public string PhoneNumber { get; set; }
-        public string? Email { get; set; } // Optional
-
 
         [Required]
         public double Latitude { get; set; }
@@ -26,11 +24,6 @@ namespace TahaMarket.Application.DTOs
 
         [Required]
         public decimal MinimumOrderAmount { get; set; }
-
-        [Required]
-        public string Type { get; set; }
-
-
 
         [Required]
         public IFormFile Image { get; set; }

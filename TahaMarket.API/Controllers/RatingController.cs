@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using TahaMarket.Application.DTOs;
+using TahaMarket.Application.Services;
 using TahaMarket.Domain.Entities;
 
 [ApiController]
@@ -14,33 +16,87 @@ public class RatingController : ControllerBase
         _service = service;
     }
 
+    // =========================================================
+    // CUSTOMER → Rate Store
+    // =========================================================
     [Authorize(Roles = "Customer")]
     [HttpPost("store/{storeId}")]
-    public async Task<IActionResult> RateStore(Guid storeId, CreateRatingRequest request)
+    public async Task<IActionResult> RateStore(
+        Guid storeId,
+        [FromBody] CreateRatingRequest request)
     {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+
         await _service.RateStore(storeId, userId, request);
-        return Ok();
+
+        return Ok(new
+        {
+            message = "Store rated successfully"
+        });
     }
 
+    // =========================================================
+    // CUSTOMER → Rate Product
+    // =========================================================
     [Authorize(Roles = "Customer")]
     [HttpPost("product/{productId}")]
-    public async Task<IActionResult> RateProduct(Guid productId, CreateRatingRequest request)
+    public async Task<IActionResult> RateProduct(
+        Guid productId,
+        [FromBody] CreateRatingRequest request)
     {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+
         await _service.RateProduct(productId, userId, request);
-        return Ok();
+
+        return Ok(new
+        {
+            message = "Product rated successfully"
+        });
     }
 
-    [HttpGet("store/{storeId}")]
+    // =========================================================
+    // PUBLIC → Get Store Rating
+    // =========================================================
+    [AllowAnonymous]
+    [HttpGet("public/store/{storeId}")]
     public async Task<IActionResult> GetStoreRating(Guid storeId)
     {
-        return Ok(await _service.GetStoreRating(storeId));
+        var result = await _service.GetStoreRating(storeId);
+
+        return Ok(new
+        {
+            message = "Store rating retrieved",
+            data = new
+            {
+                storeId,
+                rating = result
+            }
+        });
     }
 
-    [HttpGet("product/{productId}")]
+    // =========================================================
+    // PUBLIC → Get Product Rating
+    // =========================================================
+    [AllowAnonymous]
+    [HttpGet("public/product/{productId}")]
     public async Task<IActionResult> GetProductRating(Guid productId)
     {
-        return Ok(await _service.GetProductRating(productId));
+        var result = await _service.GetProductRating(productId);
+
+        return Ok(new
+        {
+            message = "Product rating retrieved",
+            data = new
+            {
+                productId,
+                rating = result
+            }
+        });
     }
 }

@@ -9,22 +9,32 @@ namespace TahaMarket.Infrastructure.Data
     {
         public static void EnsureAdminExists(ApplicationDbContext context)
         {
-            
+            // Ensure database is created (prefer migrations in production)
             context.Database.EnsureCreated();
 
-            // Check if Admin exists
-            if (!context.Users.Any(u => u.UserType == "Admin"))
+            // Check if Admin already exists (case-insensitive safety)
+            var adminExists = context.Users
+                .Any(u => u.UserType.ToLower() == "admin");
+
+            if (!adminExists)
             {
                 var admin = new User
                 {
                     Id = Guid.NewGuid(),
                     Name = "Admin",
-                    Email = "krymk9920@gmail.com",
                     PhoneNumber = "01141286090",
                     PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123"),
+
+                    IsVerified = true,
                     UserType = "Admin",
+
+                    ImageUrl = "/images/users/user.png",
+
                     RefreshToken = null,
-                    RefreshTokenExpiry = DateTime.MinValue
+                    RefreshTokenExpiry = null,
+
+                    CanResetPassword = false,
+                    ResetAllowedUntil = null
                 };
 
                 context.Users.Add(admin);

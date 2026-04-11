@@ -34,5 +34,12 @@ namespace TahaMarket.Application.Services
                 .Where(c => c.StoreId == storeId)
                 .ToListAsync();
         }
+
+        public async Task<List<Category>> GetByStore(Guid storeId)
+        {
+            return await _context.Categories
+                .Where(c => c.StoreId == storeId)
+                .ToListAsync();
+        }
     }
 }
