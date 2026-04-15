@@ -32,6 +32,10 @@ builder.Services.AddScoped<DistanceService>();
 builder.Services.AddScoped<DeliveryPricingService>();
 builder.Services.AddScoped<UserAddressService>();
 builder.Services.AddScoped<OrderService>();
+builder.Services.AddScoped<StoreSectionService>();
+builder.Services.AddScoped<OfferService>();
+builder.Services.AddMemoryCache();
+
 
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: false);
@@ -50,7 +54,15 @@ builder.Services.AddLocalization(options => options.ResourcesPath = "Resources")
 
 // EF Core
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions =>
+        {
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null);
+        }));
 
 // ------------------- JWT ------------------
 

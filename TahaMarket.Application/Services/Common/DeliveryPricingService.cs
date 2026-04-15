@@ -1,23 +1,31 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace TahaMarket.Application.Services.Common
+﻿namespace TahaMarket.Application.Services.Common
 {
     public class DeliveryPricingService
     {
-        private const decimal BaseFee = 10;      
-        private const decimal PricePerKm = 3;
-        private const decimal MinFee = 15;
+        // Default values (fallback only)
+        private decimal _baseFee = 10m;
+        private decimal _pricePerKm = 3m;
+        private decimal _minFee = 15m;
 
+        // =========================
+        // SET FROM ADMIN (later DB/config)
+        // =========================
+        public void SetPricing(decimal baseFee, decimal pricePerKm, decimal minFee)
+        {
+            _baseFee = baseFee;
+            _pricePerKm = pricePerKm;
+            _minFee = minFee;
+        }
+
+        // =========================
+        // CALCULATE DELIVERY FEE
+        // =========================
         public decimal CalculateFee(double distanceKm)
         {
-            var fee = BaseFee + ((decimal)distanceKm * PricePerKm);
+            var fee = _baseFee + ((decimal)distanceKm * _pricePerKm);
 
-            if (fee < MinFee)
-                fee = MinFee;
+            if (fee < _minFee)
+                fee = _minFee;
 
             return Math.Round(fee, 2);
         }

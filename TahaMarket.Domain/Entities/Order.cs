@@ -31,5 +31,6 @@ namespace TahaMarket.Domain.Entities
 
         public DateTime? AcceptedAt { get; set; }
         public DateTime? DeliveredAt { get; set; }
+        public virtual List<DeliveryOrder> DeliveryOrders { get; set; } = new();
     }
 }

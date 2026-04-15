@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
 public class AuthService
@@ -32,8 +33,8 @@ public class AuthService
         {
             PhoneNumber = phone,
             Name = request.Name,
-            
-            UserType = "Customer",
+
+            UserType = UserType.Customer,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             IsVerified = false,
             ImageUrl = "/images/users/user.png"
@@ -171,7 +172,7 @@ public class AuthService
             {
                 success = true,
                 message = "Login successful",
-                type = "Customer",
+                type = user.UserType.ToString(),
                 data = new
                 {
                     user.Id,
@@ -345,7 +346,7 @@ public class AuthService
     // TOKENS
     private async Task<AuthResponse> GenerateUserTokens(User user)
     {
-        var token = _jwt.GenerateToken(user.Id.ToString(), user.UserType, user.PhoneNumber);
+        var token = _jwt.GenerateToken(user.Id.ToString(), user.UserType.ToString(), user.PhoneNumber);
 
         var refresh = Guid.NewGuid().ToString();
 

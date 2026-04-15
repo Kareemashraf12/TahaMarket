@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace TahaMarket.Application.DTOs
 {
-    
+
 
     public class CreateStoreRequest
     {
@@ -12,8 +12,10 @@ namespace TahaMarket.Application.DTOs
 
         [Required]
         public string Address { get; set; }
-        [Required] 
-         public string Password { get; set; }
+
+        [Required]
+        public string Password { get; set; }
+
         public string PhoneNumber { get; set; }
 
         [Required]
@@ -27,5 +29,16 @@ namespace TahaMarket.Application.DTOs
 
         [Required]
         public IFormFile Image { get; set; }
+
+        [Required]
+        public Guid StoreSectionId { get; set; }
+
+        public string? Description { get; set; }
+
+        
+        public TimeSpan TimeOpen { get; set; }
+
+        // 🔥 NEW
+        public TimeSpan TimeClose { get; set; }
     }
 }

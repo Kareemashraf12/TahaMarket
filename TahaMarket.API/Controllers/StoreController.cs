@@ -15,10 +15,10 @@ public class StoreController : ControllerBase
     }
 
     // =========================
-    //  ADMIN: Create Store
+    // ADMIN: Create Store
     // =========================
     [Authorize(Roles = "Admin")]
-    [HttpPost("CreateStoreByAdmin")]
+    [HttpPost("create")]
     public async Task<IActionResult> Create([FromForm] CreateStoreRequest request)
     {
         if (!ModelState.IsValid)
@@ -34,37 +34,10 @@ public class StoreController : ControllerBase
     }
 
     // =========================
-    //  ADMIN: Get ALL Stores
+    // ADMIN: Update Store
     // =========================
-    [Authorize(Roles = "Admin")]
-    [HttpGet("AdminGetAllStores")]
-    public async Task<IActionResult> GetAll()
-    {
-        var stores = await _service.GetAll();
-
-        return Ok(stores);
-    }
-
-    // =========================
-    //  ADMIN: Get Store By Id
-    // =========================
-    [Authorize(Roles = "Admin")]
-    [HttpGet("AdmiGetStore/{id}")]
-    public async Task<IActionResult> GetById(Guid id)
-    {
-        var store = await _service.GetById(id);
-
-        if (store == null)
-            return NotFound(new { message = "Store not found" });
-
-        return Ok(store);
-    }
-
-    // =========================
-    //  ADMIN: Update Store
-    // =========================
-    [Authorize(Roles = "Admin")]
-    [HttpPut("AdminUpdateStore/{id}")]
+    [Authorize(Roles = "Admin,Store")]
+    [HttpPut("update/{id}")]
     public async Task<IActionResult> Update(Guid id, [FromForm] UpdateStoreRequest request)
     {
         if (!ModelState.IsValid)
@@ -79,29 +52,39 @@ public class StoreController : ControllerBase
     }
 
     // =========================
-    //  PUBLIC: Get All Stores
+    // PUBLIC: Get All Stores
     // =========================
     [AllowAnonymous]
-    [HttpGet("publicGetStores")]
-    public async Task<IActionResult> GetAllPublic()
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
     {
         var stores = await _service.GetAll();
-
         return Ok(stores);
     }
 
     // =========================
-    //  PUBLIC: Get Store Details
+    // PUBLIC: Get Store Details
     // =========================
     [AllowAnonymous]
-    [HttpGet("publicGetStoreDetails/{id}")]
-    public async Task<IActionResult> GetPublicById(Guid id)
+    [HttpGet("GetDetailsById/{id}")]
+    public async Task<IActionResult> GetById(Guid id)
     {
         var store = await _service.GetById(id);
-
-        if (store == null)
-            return NotFound(new { message = "Store not found" });
-
         return Ok(store);
+    }
+
+    // =========================
+    // ADMIN: Delete Store
+    // =========================
+    [Authorize(Roles = "Admin")]
+    [HttpDelete("Delete/{id}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        await _service.DeleteStore(id);
+
+        return Ok(new
+        {
+            message = "Store deleted successfully"
+        });
     }
 }

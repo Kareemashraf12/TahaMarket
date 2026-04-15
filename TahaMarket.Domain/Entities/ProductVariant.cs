@@ -6,17 +6,17 @@ using System.Threading.Tasks;
 
 namespace TahaMarket.Domain.Entities
 {
-    public class ProductRating
+    public class ProductVariant
     {
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        public int Value { get; set; } // 1 → 5
+        public string Name { get; set; } // Small / Medium / Large
 
-        public string? Comment { get; set; }
+        public decimal Price { get; set; }
+
+        public int StockQuantity { get; set; }
 
         public Guid ProductId { get; set; }
         public Product Product { get; set; }
-
-        public Guid UserId { get; set; }
     }
 }

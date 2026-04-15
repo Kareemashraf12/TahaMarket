@@ -1,19 +1,22 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using TahaMarket.Domain.Entities;
 
 public class Product
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    [Required]
     public string Name { get; set; }
+    public string? Description { get; set; }
 
-    [Required]
-    public decimal Price { get; set; }
-
-    [Required]
     public string ImageUrl { get; set; }
 
-    // 🔥 Relation with Category
+    // Relations
     public Guid CategoryId { get; set; }
     public Category Category { get; set; }
+
+    public Guid StoreId { get; set; }
+    public Store Store { get; set; }
+
+    // Navigation
+    public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
 }

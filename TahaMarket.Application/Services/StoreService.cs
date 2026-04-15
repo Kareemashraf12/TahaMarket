@@ -3,6 +3,7 @@ using TahaMarket.Application.DTOs;
 using TahaMarket.Application.DTOs.TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
 namespace TahaMarket.Application.Services
@@ -23,26 +24,50 @@ namespace TahaMarket.Application.Services
         // =========================
         public async Task<StoreResponse> CreateStore(CreateStoreRequest request)
         {
+            // =========================
+            // CHECK PHONE EXISTS
+            // =========================
             var exists = await _context.Stores
                 .AnyAsync(s => s.PhoneNumber == request.PhoneNumber);
 
             if (exists)
                 throw new Exception("Store already exists");
 
-            var fileName = Guid.NewGuid() + Path.GetExtension(request.Image.FileName);
+            // =========================
+            // VALIDATE STORE SECTION
+            // =========================
+            var sectionExists = await _context.storeSections
+                .AnyAsync(s => s.Id == request.StoreSectionId);
 
-            var folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/images/stores");
+            if (!sectionExists)
+                throw new Exception("Invalid StoreSectionId");
 
-            if (!Directory.Exists(folderPath))
-                Directory.CreateDirectory(folderPath);
+            // =========================
+            // HANDLE IMAGE
+            // =========================
+            string imagePath = "/images/stores/default.png";
 
-            var path = Path.Combine(folderPath, fileName);
-
-            using (var stream = new FileStream(path, FileMode.Create))
+            if (request.Image != null)
             {
-                await request.Image.CopyToAsync(stream);
+                var fileName = Guid.NewGuid() + Path.GetExtension(request.Image.FileName);
+                var folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/images/stores");
+
+                if (!Directory.Exists(folderPath))
+                    Directory.CreateDirectory(folderPath);
+
+                var path = Path.Combine(folderPath, fileName);
+
+                using (var stream = new FileStream(path, FileMode.Create))
+                {
+                    await request.Image.CopyToAsync(stream);
+                }
+
+                imagePath = "/images/stores/" + fileName;
             }
 
+            // =========================
+            // CREATE STORE
+            // =========================
             var store = new Store
             {
                 Name = request.Name,
@@ -52,43 +77,56 @@ namespace TahaMarket.Application.Services
                 MinimumOrderAmount = request.MinimumOrderAmount,
                 PhoneNumber = request.PhoneNumber,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
-                ImageUrl = "/images/stores/" + fileName
+                ImageUrl = imagePath,
+
+                Description = request.Description,
+                OpenTime = request.TimeOpen,
+                CloseTime = request.TimeClose,
+                StoreSectionId = request.StoreSectionId
             };
 
-            _context.Stores.Add(store);
-            await _context.SaveChangesAsync();
+            // =========================
+            // SAVE WITH ERROR HANDLING
+            // =========================
+            try
+            {
+                _context.Stores.Add(store);
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                throw new Exception("Error while saving store. Please check data integrity.");
+            }
 
-            return MapToResponse(store);
+            // =========================
+            // RETURN RESPONSE
+            // =========================
+            return await MapToResponse(store);
         }
-
         // =========================
-        // GET MY STORE
-        // =========================
-        public async Task<StoreResponse> GetMyStore(Guid storeId)
-        {
-            var store = await _context.Stores
-                .FirstOrDefaultAsync(s => s.Id == storeId);
-
-            if (store == null)
-                throw new Exception("Store not found");
-
-            return MapToResponse(store);
-        }
-
-        // =========================
-        // GET ALL STORES
+        // GET ALL (PUBLIC)
         // =========================
         public async Task<List<StoreResponse>> GetAll()
         {
-            var stores = await _context.Stores.ToListAsync();
+            return await _context.Stores
+                .Select(s => new StoreResponse
+                {
+                    Id = s.Id,
+                    Name = s.Name,
+                    Description = s.Description,
+                    ImageUrl = _fileUrl.GetFullUrl(s.ImageUrl),
 
-            return stores.Select(s => MapToResponse(s)).ToList();
+                    AverageRating = _context.Ratings
+                        .Where(r => r.TargetId == s.Id && r.TargetType == RatingTargetType.Store)
+                        .Average(r => (double?)r.Value) ?? 0
+                })
+                .ToListAsync();
         }
 
         // =========================
-        // GET BY ID
+        // GET BY ID (FULL DETAILS)
         // =========================
-        public async Task<StoreResponse> GetById(Guid id)
+        public async Task<object> GetById(Guid id)
         {
             var store = await _context.Stores
                 .FirstOrDefaultAsync(s => s.Id == id);
@@ -96,9 +134,29 @@ namespace TahaMarket.Application.Services
             if (store == null)
                 throw new Exception("Store not found");
 
-            return MapToResponse(store);
-        }
+            var average = await _context.Ratings
+                .Where(r => r.TargetId == id && r.TargetType == RatingTargetType.Store)
+                .AverageAsync(r => (double?)r.Value) ?? 0;
 
+            return new
+            {
+                store.Id,
+                store.Name,
+                store.Description,
+                store.Address,
+                store.PhoneNumber,
+                store.MinimumOrderAmount,
+                store.Latitude,
+                store.Longitude,
+                ImageUrl = _fileUrl.GetFullUrl(store.ImageUrl),
+
+                store.OpenTime,
+                store.CloseTime,
+                store.StoreSectionId,
+
+                AverageRating = average
+            };
+        }
         // =========================
         // UPDATE STORE
         // =========================
@@ -113,10 +171,13 @@ namespace TahaMarket.Application.Services
             store.Address = request.Address ?? store.Address;
             store.PhoneNumber = request.PhoneNumber ?? store.PhoneNumber;
 
+            store.Description = request.Description ?? store.Description;
+            store.OpenTime = request.OpenTime ?? store.OpenTime;
+            store.CloseTime = request.CloseTime ?? store.CloseTime;
+
             if (request.Image != null)
             {
                 var fileName = Guid.NewGuid() + Path.GetExtension(request.Image.FileName);
-
                 var folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/images/stores");
 
                 if (!Directory.Exists(folderPath))
@@ -134,25 +195,40 @@ namespace TahaMarket.Application.Services
 
             await _context.SaveChangesAsync();
 
-            return MapToResponse(store);
+            return await MapToResponse(store);
         }
 
         // =========================
-        // MAPPER 
+        // DELETE STORE
         // =========================
-        private StoreResponse MapToResponse(Store store)
+        public async Task DeleteStore(Guid id)
         {
+            var store = await _context.Stores
+                .FirstOrDefaultAsync(s => s.Id == id);
+
+            if (store == null)
+                throw new Exception("Store not found");
+
+            _context.Stores.Remove(store);
+            await _context.SaveChangesAsync();
+        }
+
+        // =========================
+        // MAPPER
+        // =========================
+        private async Task<StoreResponse> MapToResponse(Store store)
+        {
+            var average = await _context.Ratings
+                .Where(r => r.TargetId == store.Id && r.TargetType == RatingTargetType.Store)
+                .AverageAsync(r => (double?)r.Value) ?? 0;
+
             return new StoreResponse
             {
                 Id = store.Id,
                 Name = store.Name,
-                Address = store.Address,
-                PhoneNumber = store.PhoneNumber,
-                MinimumOrderAmount = store.MinimumOrderAmount,
-                
-                Latitude = store.Latitude,
-                Longitude = store.Longitude,
-                ImageUrl = _fileUrl.GetFullUrl(store.ImageUrl)
+                Description = store.Description,
+                ImageUrl = _fileUrl.GetFullUrl(store.ImageUrl),
+                AverageRating = average
             };
         }
     }

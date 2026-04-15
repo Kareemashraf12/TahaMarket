@@ -15,17 +15,18 @@ public class JwtService
 
     public string GenerateToken(string id, string role, string phoneNumber)
     {
+        var keyString = _config["Jwt:Key"];
+        if (string.IsNullOrEmpty(keyString))
+            throw new Exception("JWT Key is missing");
+
         var claims = new[]
         {
-            new Claim(ClaimTypes.NameIdentifier, id),
-            new Claim(ClaimTypes.MobilePhone, phoneNumber ?? ""),
-            new Claim(ClaimTypes.Role, role)
-        };
+        new Claim(ClaimTypes.NameIdentifier, id),
+        new Claim(ClaimTypes.MobilePhone, phoneNumber ?? ""),
+        new Claim(ClaimTypes.Role, role.ToString())
+    };
 
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_config["Jwt:Key"])
-        );
-
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyString));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(

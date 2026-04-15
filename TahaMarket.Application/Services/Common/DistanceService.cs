@@ -1,16 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace TahaMarket.Application.Services.Common
+﻿namespace TahaMarket.Application.Services.Common
 {
     public class DistanceService
     {
         private const double EarthRadiusKm = 6371;
 
-        public double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
+        public double CalculateDistanceKm(double lat1, double lon1, double lat2, double lon2)
         {
             var dLat = ToRadians(lat2 - lat1);
             var dLon = ToRadians(lon2 - lon1);
@@ -25,9 +19,9 @@ namespace TahaMarket.Application.Services.Common
             return EarthRadiusKm * c;
         }
 
-        private double ToRadians(double angle)
+        private double ToRadians(double value)
         {
-            return angle * Math.PI / 180;
+            return value * Math.PI / 180;
         }
     }
 }

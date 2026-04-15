@@ -4,6 +4,7 @@ using System.Security.Claims;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
 public class DeliveryService
@@ -28,47 +29,48 @@ public class DeliveryService
         _httpContextAccessor = httpContextAccessor;
     }
 
-    // Helper to get DeliveryId from token
+    // =========================
+    // GET DELIVERY ID FROM TOKEN
+    // =========================
     private Guid GetDeliveryIdFromToken()
     {
-        var claim = _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (claim == null) throw new Exception("Delivery not authenticated");
+        var claim = _httpContextAccessor.HttpContext?
+            .User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (claim == null)
+            throw new Exception("Delivery not authenticated");
+
         return Guid.Parse(claim);
     }
 
     // =========================
-    // CREATE DELIVERY (Admin)
+    // CREATE DELIVERY (ADMIN ONLY)
     // =========================
     public async Task<object> Create(CreateDeliveryRequest request)
     {
-
         var exists = await _context.Deliveries
             .AnyAsync(d => d.PhoneNumber == request.PhoneNumber);
 
         if (exists)
             throw new Exception("Delivery already exists");
 
-        
-        string imageUrl = "/images/deliveries/delivery.png";
-
         var delivery = new Delivery
         {
             Name = request.Name,
             PhoneNumber = request.PhoneNumber,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
-            ImageUrl = imageUrl,
+            ImageUrl = "/images/deliveries/default.png",
             Balance = 0,
-            RefreshToken = "",                      
-            RefreshTokenExpiry = DateTime.UtcNow, 
-            VehicleType = request.VehicleType,                      
-            IsAvailable = true,                   
-            IsOnline = false                      
+            RefreshToken = null,
+            RefreshTokenExpiry = null,
+            VehicleType = request.VehicleType,
+            IsAvailable = true,
+            IsOnline = false
         };
 
         _context.Deliveries.Add(delivery);
         await _context.SaveChangesAsync();
 
-           
         return new
         {
             delivery.Id,
@@ -78,42 +80,73 @@ public class DeliveryService
             delivery.IsAvailable,
             delivery.IsOnline,
             ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
-            delivery.Balance,
-            delivery.RefreshToken,
-            delivery.RefreshTokenExpiry
+            delivery.Balance
         };
     }
 
     // =========================
-    // ASSIGN ORDER
+    // ASSIGN ORDER (ADMIN OR STORE)
     // =========================
-    public async Task AssignOrder(Guid orderId, Guid deliveryId)
+    public async Task AssignOrder(
+    Guid orderId,
+    Guid deliveryId,
+    AssignedByType assignedBy,
+    decimal? manualFee = null)
     {
+        // =========================
+        // VALIDATION (ENUM FIX)
+        // =========================
+        if (assignedBy != AssignedByType.Admin &&
+            assignedBy != AssignedByType.Store)
+        {
+            throw new Exception("Not allowed to assign delivery");
+        }
+
         var order = await _context.Orders
             .Include(o => o.Store)
             .Include(o => o.UserAddress)
             .FirstOrDefaultAsync(o => o.Id == orderId);
 
-        if (order == null) throw new Exception("Order not found");
+        if (order == null)
+            throw new Exception("Order not found");
 
         var delivery = await _context.Deliveries.FindAsync(deliveryId);
-        if (delivery == null) throw new Exception("Delivery not found");
 
-        var distance = _distance.CalculateDistance(
+        if (delivery == null)
+            throw new Exception("Delivery not found");
+
+        var alreadyAssigned = await _context.DeliveryOrders
+            .AnyAsync(d => d.OrderId == orderId);
+
+        if (alreadyAssigned)
+            throw new Exception("Order already assigned");
+
+        // =========================
+        // CALCULATE DISTANCE
+        // =========================
+        var distanceKm = _distance.CalculateDistanceKm(
             order.Store.Latitude,
             order.Store.Longitude,
             order.UserAddress.Latitude,
             order.UserAddress.Longitude
         );
 
-        var fee = _pricing.CalculateFee(distance);
+        // =========================
+        // AUTO FEE
+        // =========================
+        var autoFee = _pricing.CalculateFee(distanceKm);
+
+        // =========================
+        // FINAL FEE (override optional)
+        // =========================
+        var finalFee = manualFee ?? autoFee;
 
         var deliveryOrder = new DeliveryOrder
         {
             OrderId = orderId,
             DeliveryId = deliveryId,
-            DeliveryFee = fee,
-            Status = "Pending"
+            DeliveryFee = finalFee,
+            Status = DeliveryStatus.Pending
         };
 
         _context.DeliveryOrders.Add(deliveryOrder);
@@ -121,19 +154,24 @@ public class DeliveryService
     }
 
     // =========================
-    // ACCEPT ORDER
+    // ACCEPT ORDER (DELIVERY)
     // =========================
     public async Task AcceptOrder(Guid orderId)
     {
         var deliveryId = GetDeliveryIdFromToken();
 
         var deliveryOrder = await _context.DeliveryOrders
-            .FirstOrDefaultAsync(d => d.OrderId == orderId && d.DeliveryId == deliveryId);
+            .FirstOrDefaultAsync(d =>
+                d.OrderId == orderId &&
+                d.DeliveryId == deliveryId);
 
-        if (deliveryOrder == null) throw new Exception("Not assigned");
-        if (deliveryOrder.Status != "Pending") throw new Exception("Invalid state");
+        if (deliveryOrder == null)
+            throw new Exception("Not assigned");
 
-        deliveryOrder.Status = "Picked";
+        if (deliveryOrder.Status != DeliveryStatus.Pending)
+            throw new Exception("Invalid state");
+
+        deliveryOrder.Status = DeliveryStatus.Picked;
         deliveryOrder.PickedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -148,20 +186,26 @@ public class DeliveryService
 
         var deliveryOrder = await _context.DeliveryOrders
             .Include(d => d.Delivery)
-            .FirstOrDefaultAsync(d => d.OrderId == orderId && d.DeliveryId == deliveryId);
+            .FirstOrDefaultAsync(d =>
+                d.OrderId == orderId &&
+                d.DeliveryId == deliveryId);
 
-        if (deliveryOrder == null) throw new Exception("Not assigned");
-        if (deliveryOrder.Status != "Picked") throw new Exception("Invalid state");
+        if (deliveryOrder == null)
+            throw new Exception("Not assigned");
 
-        deliveryOrder.Status = "Delivered";
+        if (deliveryOrder.Status != DeliveryStatus.Picked)
+            throw new Exception("Invalid state");
+
+        deliveryOrder.Status = DeliveryStatus.Delivered;
         deliveryOrder.DeliveredAt = DateTime.UtcNow;
+
         deliveryOrder.Delivery.Balance += deliveryOrder.DeliveryFee;
 
         await _context.SaveChangesAsync();
     }
 
     // =========================
-    // GET MY ORDERS
+    // GET MY ORDERS (DELIVERY)
     // =========================
     public async Task<object> GetMyOrders()
     {
@@ -177,7 +221,7 @@ public class DeliveryService
                 d.Status,
                 d.DeliveryFee,
                 Store = d.Order.Store.Name,
-                CreatedAt = d.Order.CreatedAt
+                d.Order.CreatedAt
             })
             .ToListAsync();
     }
@@ -190,7 +234,9 @@ public class DeliveryService
         var deliveryId = GetDeliveryIdFromToken();
 
         var delivery = await _context.Deliveries.FindAsync(deliveryId);
-        if (delivery == null) throw new Exception("Delivery not found");
+
+        if (delivery == null)
+            throw new Exception("Delivery not found");
 
         return new
         {
@@ -215,9 +261,12 @@ public class DeliveryService
         var deliveryId = GetDeliveryIdFromToken();
 
         var delivery = await _context.Deliveries.FindAsync(deliveryId);
-        if (delivery == null) throw new Exception("Delivery not found");
+
+        if (delivery == null)
+            throw new Exception("Delivery not found");
 
         delivery.Name = request.Name;
+
         if (!string.IsNullOrEmpty(request.VehicleType))
             delivery.VehicleType = request.VehicleType;
 
@@ -230,6 +279,7 @@ public class DeliveryService
                 Directory.CreateDirectory(folder);
 
             var path = Path.Combine(folder, fileName);
+
             using (var stream = new FileStream(path, FileMode.Create))
                 await request.Image.CopyToAsync(stream);
 
@@ -257,8 +307,11 @@ public class DeliveryService
     public async Task Logout()
     {
         var deliveryId = GetDeliveryIdFromToken();
+
         var delivery = await _context.Deliveries.FindAsync(deliveryId);
-        if (delivery == null) throw new Exception("Delivery not found");
+
+        if (delivery == null)
+            throw new Exception("Delivery not found");
 
         delivery.RefreshToken = null;
         delivery.RefreshTokenExpiry = null;

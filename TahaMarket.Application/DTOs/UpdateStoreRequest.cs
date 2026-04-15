@@ -4,10 +4,27 @@ namespace TahaMarket.Application.DTOs
 {
     public class UpdateStoreRequest
     {
-        public string Name { get; set; }
-        public string Address { get; set; }
-        public string PhoneNumber { get; set; }
+        // =========================
+        // BASIC INFO
+        // =========================
+        public string? Name { get; set; }
+        public string? Address { get; set; }
+        public string? PhoneNumber { get; set; }
 
-        public IFormFile? Image { get; set; } // optional
+        // =========================
+        // DESCRIPTION
+        // =========================
+        public string? Description { get; set; }
+
+        // =========================
+        // WORKING HOURS
+        // =========================
+        public TimeSpan? OpenTime { get; set; }
+        public TimeSpan? CloseTime { get; set; }
+
+        // =========================
+        // IMAGE
+        // =========================
+        public IFormFile? Image { get; set; }
     }
 }

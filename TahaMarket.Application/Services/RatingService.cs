@@ -1,95 +1,183 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using TahaMarket.Application.DTOs;
 using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
 public class RatingService
 {
     private readonly ApplicationDbContext _context;
+    private readonly IMemoryCache _cache;
 
-    public RatingService(ApplicationDbContext context)
+    public RatingService(ApplicationDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
     }
 
-    //  Rate Store
-    public async Task RateStore(Guid storeId, Guid userId, CreateRatingRequest request)
+    // =========================
+    // ADD OR UPDATE RATING
+    // =========================
+    public async Task AddOrUpdate(Guid userId, AddRatingRequest request)
     {
-        var exists = await _context.StoreRatings
-            .FirstOrDefaultAsync(r => r.StoreId == storeId && r.UserId == userId);
+        var existing = await _context.Ratings
+            .FirstOrDefaultAsync(r =>
+                r.UserId == userId &&
+                r.TargetId == request.TargetId &&
+                r.TargetType == request.TargetType);
 
-        if (exists != null)
+        if (existing != null)
         {
-            exists.Value = request.Value;
-            exists.Comment = request.Comment;
+            existing.Value = request.Value;
+            existing.Comment = request.Comment;
+            existing.CreatedAt = DateTime.UtcNow;
         }
         else
         {
-            var rating = new StoreRating
+            _context.Ratings.Add(new Rating
             {
-                StoreId = storeId,
                 UserId = userId,
+                TargetId = request.TargetId,
+                TargetType = request.TargetType,
                 Value = request.Value,
-                Comment = request.Comment
-            };
-
-            _context.StoreRatings.Add(rating);
+                Comment = request.Comment,
+                CreatedAt = DateTime.UtcNow
+            });
         }
 
         await _context.SaveChangesAsync();
+
+        RemoveCache(request.TargetId, request.TargetType);
     }
 
-    //  Rate Product
-    public async Task RateProduct(Guid productId, Guid userId, CreateRatingRequest request)
+    // =========================
+    // GET SUMMARY (OPTIMIZED + CACHE)
+    // =========================
+    public async Task<RatingSummaryDto> GetSummary(Guid targetId, RatingTargetType type)
     {
-        var exists = await _context.ProductRatings
-            .FirstOrDefaultAsync(r => r.ProductId == productId && r.UserId == userId);
+        var key = GetCacheKey(targetId, type);
 
-        if (exists != null)
-        {
-            exists.Value = request.Value;
-            exists.Comment = request.Comment;
-        }
-        else
-        {
-            var rating = new ProductRating
+        if (_cache.TryGetValue(key, out RatingSummaryDto cached))
+            return cached;
+
+        var data = await _context.Ratings
+            .Where(r => r.TargetId == targetId && r.TargetType == type)
+            .GroupBy(x => 1)
+            .Select(g => new RatingSummaryDto
             {
-                ProductId = productId,
-                UserId = userId,
-                Value = request.Value,
-                Comment = request.Comment
-            };
+                Count = g.Count(),
+                Average = g.Average(x => x.Value),
 
-            _context.ProductRatings.Add(rating);
-        }
+                Star1 = g.Count(x => x.Value == 1),
+                Star2 = g.Count(x => x.Value == 2),
+                Star3 = g.Count(x => x.Value == 3),
+                Star4 = g.Count(x => x.Value == 4),
+                Star5 = g.Count(x => x.Value == 5)
+            })
+            .FirstOrDefaultAsync();
 
+        var result = data ?? new RatingSummaryDto();
+
+        _cache.Set(key, result, TimeSpan.FromMinutes(10));
+
+        return result;
+    }
+
+    // =========================
+    // GET COMMENTS (PAGINATION)
+    // =========================
+    public async Task<PagedResult<RatingCommentDto>> GetComments(
+        Guid targetId,
+        RatingTargetType type,
+        int page,
+        int pageSize)
+    {
+        var query = _context.Ratings
+            .AsNoTracking()
+            .Where(r => r.TargetId == targetId && r.TargetType == type);
+
+        var totalCount = await query.CountAsync();
+
+        var data = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Include(r => r.User)
+            .Select(r => new RatingCommentDto
+            {
+                UserName = r.User.Name,
+                UserImage = r.User.ImageUrl,
+                Value = r.Value,
+                Comment = r.Comment,
+                CreatedAt = r.CreatedAt
+            })
+            .ToListAsync();
+
+        return new PagedResult<RatingCommentDto>
+        {
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            Data = data
+        };
+    }
+
+    // =========================
+    // OVERLOAD (DEFAULT PAGINATION)
+    // =========================
+    public Task<PagedResult<RatingCommentDto>> GetComments(
+        Guid targetId,
+        RatingTargetType type)
+    {
+        return GetComments(targetId, type, 1, 10);
+    }
+
+    // =========================
+    // GET FULL DETAILS
+    // =========================
+    public async Task<RatingDetailsDto> GetFullDetails(Guid targetId, RatingTargetType type)
+    {
+        var summary = await GetSummary(targetId, type);
+        var comments = await GetComments(targetId, type, 1, 10);
+
+        return new RatingDetailsDto
+        {
+            Summary = summary,
+            Comments = comments
+        };
+    }
+
+    // =========================
+    // DELETE RATING
+    // =========================
+    public async Task Delete(Guid userId, Guid targetId, RatingTargetType type)
+    {
+        var rating = await _context.Ratings
+            .FirstOrDefaultAsync(r =>
+                r.UserId == userId &&
+                r.TargetId == targetId &&
+                r.TargetType == type);
+
+        if (rating == null)
+            throw new Exception("Rating not found");
+
+        _context.Ratings.Remove(rating);
         await _context.SaveChangesAsync();
+
+        RemoveCache(targetId, type);
     }
 
-    //  Get Store Rating
-    public async Task<object> GetStoreRating(Guid storeId)
+    // =========================
+    // CACHE HELPERS
+    // =========================
+    private string GetCacheKey(Guid targetId, RatingTargetType type)
     {
-        var ratings = await _context.StoreRatings
-            .Where(r => r.StoreId == storeId)
-            .ToListAsync();
-
-        return new
-        {
-            Average = ratings.Any() ? ratings.Average(r => r.Value) : 0,
-            Count = ratings.Count
-        };
+        return $"rating_summary_{type}_{targetId}";
     }
 
-    //  Get Product Rating
-    public async Task<object> GetProductRating(Guid productId)
+    private void RemoveCache(Guid targetId, RatingTargetType type)
     {
-        var ratings = await _context.ProductRatings
-            .Where(r => r.ProductId == productId)
-            .ToListAsync();
-
-        return new
-        {
-            Average = ratings.Any() ? ratings.Average(r => r.Value) : 0,
-            Count = ratings.Count
-        };
+        _cache.Remove(GetCacheKey(targetId, type));
     }
 }

@@ -8,13 +8,19 @@ namespace TahaMarket.Application.DTOs
         [Required]
         public string Name { get; set; }
 
-        [Required]
-        public decimal Price { get; set; }
+        public string Description { get; set; }
 
         [Required]
-        public Guid CategoryId { get; set; } 
+        public Guid CategoryId { get; set; }
 
         [Required]
-        public IFormFile Image { get; set; } 
+        public IFormFile Image { get; set; }
+
+        [Required]
+        public Guid StoreId { get; set; }
+
+        
+        [Required]
+        public string Variants { get; set; }
     }
 }

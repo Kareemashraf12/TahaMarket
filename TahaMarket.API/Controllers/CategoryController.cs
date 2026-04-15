@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 using TahaMarket.Application.Services;
 
 [ApiController]
@@ -15,14 +14,12 @@ public class CategoryController : ControllerBase
     }
 
     // =========================
-    //  STORE: Create Category
+    // ADMIN: Create Category
     // =========================
-    [Authorize(Roles = "Store")]
+    [Authorize(Roles = "Admin")]
     [HttpPost]
-    public async Task<IActionResult> CreateForStore([FromBody] string name)
+    public async Task<IActionResult> Create(Guid storeId, [FromBody] string name)
     {
-        var storeId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-
         var result = await _service.Create(storeId, name);
 
         return Ok(new
@@ -33,40 +30,10 @@ public class CategoryController : ControllerBase
     }
 
     // =========================
-    //   ADMIN: Create Category for any Store
-    // =========================
-    [Authorize(Roles = "Admin")]
-    [HttpPost("admin")]
-    public async Task<IActionResult> CreateForAnyStore(Guid storeId, [FromBody] string name)
-    {
-        var result = await _service.Create(storeId, name);
-
-        return Ok(new
-        {
-            message = "Category created for store",
-            data = result
-        });
-    }
-
-    // =========================
-    //  STORE: Get My Categories
-    // =========================
-    [Authorize(Roles = "Store")]
-    [HttpGet("my")]
-    public async Task<IActionResult> GetMyCategories()
-    {
-        var storeId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-
-        var result = await _service.GetMy(storeId);
-
-        return Ok(result);
-    }
-
-    // =========================
     // PUBLIC: Get Categories by Store
     // =========================
     [AllowAnonymous]
-    [HttpGet("public/{storeId}")]
+    [HttpGet("{storeId}")]
     public async Task<IActionResult> GetByStore(Guid storeId)
     {
         var result = await _service.GetByStore(storeId);
@@ -75,13 +42,13 @@ public class CategoryController : ControllerBase
     }
 
     // =========================
-    //  ADMIN: Get Categories for Store
+    // PUBLIC: Get Category by Id
     // =========================
-    [Authorize(Roles = "Admin")]
-    [HttpGet("admin/{storeId}")]
-    public async Task<IActionResult> GetForStore(Guid storeId)
+    [AllowAnonymous]
+    [HttpGet("details/{categoryId}")]
+    public async Task<IActionResult> GetById(Guid categoryId)
     {
-        var result = await _service.GetByStore(storeId);
+        var result = await _service.GetById(categoryId);
 
         return Ok(result);
     }

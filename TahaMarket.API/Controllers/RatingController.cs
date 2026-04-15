@@ -2,8 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TahaMarket.Application.DTOs;
-using TahaMarket.Application.Services;
-using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 
 [ApiController]
 [Route("api/ratings")]
@@ -16,87 +15,64 @@ public class RatingController : ControllerBase
         _service = service;
     }
 
-    // =========================================================
-    // CUSTOMER → Rate Store
-    // =========================================================
-    [Authorize(Roles = "Customer")]
-    [HttpPost("store/{storeId}")]
-    public async Task<IActionResult> RateStore(
-        Guid storeId,
-        [FromBody] CreateRatingRequest request)
+    // =========================
+    // ADD / UPDATE
+    // =========================
+    [Authorize]
+    [HttpPost]
+    public async Task<IActionResult> Add(AddRatingRequest request)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+        await _service.AddOrUpdate(userId, request);
 
-        await _service.RateStore(storeId, userId, request);
-
-        return Ok(new
-        {
-            message = "Store rated successfully"
-        });
+        return Ok(new { message = "Rating saved successfully" });
     }
 
-    // =========================================================
-    // CUSTOMER → Rate Product
-    // =========================================================
-    [Authorize(Roles = "Customer")]
-    [HttpPost("product/{productId}")]
-    public async Task<IActionResult> RateProduct(
-        Guid productId,
-        [FromBody] CreateRatingRequest request)
-    {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
-        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-
-        await _service.RateProduct(productId, userId, request);
-
-        return Ok(new
-        {
-            message = "Product rated successfully"
-        });
-    }
-
-    // =========================================================
-    // PUBLIC → Get Store Rating
-    // =========================================================
+    // =========================
+    // SUMMARY
+    // =========================
     [AllowAnonymous]
-    [HttpGet("public/store/{storeId}")]
-    public async Task<IActionResult> GetStoreRating(Guid storeId)
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary(Guid targetId, RatingTargetType type)
     {
-        var result = await _service.GetStoreRating(storeId);
-
-        return Ok(new
-        {
-            message = "Store rating retrieved",
-            data = new
-            {
-                storeId,
-                rating = result
-            }
-        });
+        var result = await _service.GetSummary(targetId, type);
+        return Ok(result);
     }
 
-    // =========================================================
-    // PUBLIC → Get Product Rating
-    // =========================================================
+    // =========================
+    // COMMENTS
+    // =========================
     [AllowAnonymous]
-    [HttpGet("public/product/{productId}")]
-    public async Task<IActionResult> GetProductRating(Guid productId)
+    [HttpGet("comments")]
+    public async Task<IActionResult> GetComments(Guid targetId, RatingTargetType type)
     {
-        var result = await _service.GetProductRating(productId);
+        var result = await _service.GetComments(targetId, type);
+        return Ok(result);
+    }
 
-        return Ok(new
-        {
-            message = "Product rating retrieved",
-            data = new
-            {
-                productId,
-                rating = result
-            }
-        });
+    // =========================
+    //  FULL DETAILS 
+    // =========================
+    [AllowAnonymous]
+    [HttpGet("details")]
+    public async Task<IActionResult> GetFullDetails(Guid targetId, RatingTargetType type)
+    {
+        var result = await _service.GetFullDetails(targetId, type);
+        return Ok(result);
+    }
+
+    // =========================
+    // DELETE MY RATING
+    // =========================
+    [Authorize]
+    [HttpDelete]
+    public async Task<IActionResult> Delete(Guid targetId, RatingTargetType type)
+    {
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        await _service.Delete(userId, targetId, type);
+
+        return Ok(new { message = "Rating deleted successfully" });
     }
 }

@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
 public class OrderService
@@ -23,8 +24,35 @@ public class OrderService
 
         var address = await _context.UserAddresses
             .FirstOrDefaultAsync(a => a.Id == request.AddressId && a.UserId == userId);
+
         if (address == null)
             throw new Exception("Invalid address");
+
+        var now = DateTime.UtcNow;
+
+        // -------------------------
+        // Load products in batch
+        // -------------------------
+        var productIds = request.Items.Select(x => x.ProductId).ToList();
+
+        var products = await _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Variants)
+            .Where(p => productIds.Contains(p.Id))
+            .ToListAsync();
+
+        if (products.Count != productIds.Count)
+            throw new Exception("One or more products not found");
+
+        // -------------------------
+        // Load active offers once
+        // -------------------------
+        var offers = await _context.Offers
+            .Where(o =>
+                o.IsActive &&
+                o.StartDate <= now &&
+                o.EndDate >= now)
+            .ToListAsync();
 
         var order = new Order
         {
@@ -32,31 +60,51 @@ public class OrderService
             StoreId = request.StoreId,
             AddressId = request.AddressId,
             Status = OrderStatus.Pending,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now
         };
 
         decimal total = 0;
 
         foreach (var item in request.Items)
         {
-            var product = await _context.Products.FindAsync(item.ProductId);
-            if (product == null)
-                throw new Exception("Product not found");
+            var product = products.First(p => p.Id == item.ProductId);
+
+            // base price
+            var basePrice = product.Variants.Any()
+                ? product.Variants.Min(v => v.Price)
+                : throw new Exception("Product has no price");
+
+            // offer logic (product OR category)
+            var bestOffer = offers
+                .Where(o =>
+                    (o.TargetType == OfferTargetType.Product && o.TargetId == product.Id) ||
+                    (o.TargetType == OfferTargetType.Category && o.TargetId == product.CategoryId))
+                .OrderByDescending(o => o.DiscountPercentage)
+                .FirstOrDefault();
+
+            var discount = bestOffer?.DiscountPercentage ?? 0;
+
+            var finalPrice = basePrice;
+
+            if (discount > 0)
+                finalPrice = basePrice - (basePrice * discount / 100);
+
+            var itemTotal = finalPrice * item.Quantity;
+
+            total += itemTotal;
 
             order.Items.Add(new OrderItem
             {
                 ProductId = product.Id,
                 Quantity = item.Quantity,
-                Price = product.Price,
+                Price = finalPrice,
                 Note = item.Note
             });
-
-            total += product.Price * item.Quantity;
         }
 
         order.TotalPrice = total;
         order.DeliveryFee = 0;
-        order.FinalPrice = total;
+        order.FinalPrice = total + order.DeliveryFee;
 
         _context.Orders.Add(order);
         await _context.SaveChangesAsync();
@@ -65,7 +113,8 @@ public class OrderService
         {
             order.Id,
             order.Status,
-            order.TotalPrice
+            order.TotalPrice,
+            order.FinalPrice
         };
     }
 
@@ -85,6 +134,7 @@ public class OrderService
                 Store = o.Store.Name,
                 Status = o.Status,
                 TotalPrice = o.TotalPrice,
+                FinalPrice = o.FinalPrice,
                 Items = o.Items.Select(i => new
                 {
                     i.Product.Name,
@@ -97,7 +147,6 @@ public class OrderService
             .ToListAsync();
     }
 
-
     // =========================
     // STORE DASHBOARD
     // =========================
@@ -105,22 +154,20 @@ public class OrderService
     {
         var today = DateTime.UtcNow.Date;
 
-        // Total revenue from accepted/delivered orders today
         var totalRevenue = await _context.Orders
-            .Where(o => o.StoreId == storeId
-                        && (o.Status == OrderStatus.Accepted || o.Status == OrderStatus.Delivered)
-                        && o.CreatedAt.Date == today)
+            .Where(o =>
+                o.StoreId == storeId &&
+                (o.Status == OrderStatus.Accepted || o.Status == OrderStatus.Delivered) &&
+                o.CreatedAt >= today &&
+                o.CreatedAt < today.AddDays(1))
             .SumAsync(o => (decimal?)o.FinalPrice) ?? 0;
 
-        // Count of pending orders
         var pendingOrders = await _context.Orders
             .CountAsync(o => o.StoreId == storeId && o.Status == OrderStatus.Pending);
 
-        // Count of delivered orders
         var deliveredOrders = await _context.Orders
             .CountAsync(o => o.StoreId == storeId && o.Status == OrderStatus.Delivered);
 
-        // Count of rejected orders
         var rejectedOrders = await _context.Orders
             .CountAsync(o => o.StoreId == storeId && o.Status == OrderStatus.Rejected);
 
@@ -133,9 +180,8 @@ public class OrderService
         };
     }
 
-
     // =========================
-    // STORE GET ORDERS (with filter by status)
+    // STORE GET ORDERS
     // =========================
     public async Task<object> GetStoreOrders(Guid storeId, OrderStatus? status = null)
     {
@@ -156,6 +202,7 @@ public class OrderService
                 User = o.User.Name,
                 o.Status,
                 o.TotalPrice,
+                o.FinalPrice,
                 Items = o.Items.Select(i => new
                 {
                     Product = i.Product.Name,
@@ -169,11 +216,12 @@ public class OrderService
     }
 
     // =========================
-    // STORE ACCEPT ORDER
+    // ACCEPT ORDER
     // =========================
     public async Task AcceptOrder(Guid orderId, Guid storeId)
     {
         var order = await _context.Orders.FindAsync(orderId);
+
         if (order == null || order.StoreId != storeId)
             throw new Exception("Order not found");
 
@@ -187,15 +235,17 @@ public class OrderService
     }
 
     // =========================
-    // STORE REJECT ORDER
+    // REJECT ORDER
     // =========================
     public async Task RejectOrder(Guid orderId, Guid storeId)
     {
         var order = await _context.Orders.FindAsync(orderId);
+
         if (order == null || order.StoreId != storeId)
             throw new Exception("Order not found");
 
         order.Status = OrderStatus.Rejected;
+
         await _context.SaveChangesAsync();
     }
 
@@ -213,7 +263,8 @@ public class OrderService
                 Store = o.Store.Name,
                 User = o.User.Name,
                 o.Status,
-                o.TotalPrice
+                o.TotalPrice,
+                o.FinalPrice
             })
             .ToListAsync();
     }
@@ -232,8 +283,9 @@ public class OrderService
             {
                 o.Id,
                 User = o.User.Name,
-                Status = o.Status,
-                TotalPrice = o.TotalPrice,
+                o.Status,
+                o.TotalPrice,
+                o.FinalPrice,
                 Items = o.Items.Select(i => new
                 {
                     Product = i.Product.Name,
@@ -255,7 +307,7 @@ public class OrderService
             .Include(s => s.Orders)
             .ToListAsync();
 
-        var dashboard = stores.Select(s => new
+        return stores.Select(s => new
         {
             StoreId = s.Id,
             StoreName = s.Name,
@@ -267,7 +319,5 @@ public class OrderService
             RejectedOrders = s.Orders.Count(o => o.Status == OrderStatus.Rejected),
             TotalOrders = s.Orders.Count
         }).ToList();
-
-        return dashboard;
     }
 }

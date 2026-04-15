@@ -35,8 +35,10 @@ public class UserService
     }
 
     //  Get Profile
-    public async Task<object> GetProfile(Guid userId)
+    public async Task<object> GetProfile()
     {
+        var userId = GetUserIdFromToken();
+
         var user = await _context.Users.FindAsync(userId);
 
         if (user == null)
@@ -91,7 +93,7 @@ public class UserService
             throw new Exception("User not found");
 
         user.RefreshToken = null;
-        user.RefreshTokenExpiry = null;
+        user.RefreshTokenExpiry = DateTime.MinValue;
 
         await _context.SaveChangesAsync();
     }

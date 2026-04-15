@@ -19,12 +19,11 @@ public class UserController : ControllerBase
     // =========================================================
     // USER → Get Profile
     // =========================================================
+    [Authorize]
     [HttpGet("profile")]
     public async Task<IActionResult> GetProfile()
     {
-        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-
-        var result = await _service.GetProfile(userId);
+        var result = await _service.GetProfile();
 
         return Ok(new
         {

@@ -1,10 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using TahaMarket.Application.DTOs;
+using TahaMarket.Domain.Entities;
 using TahaMarket.Infrastructure.Data;
 
 namespace TahaMarket.Application.Services
 {
-    
-
     public class CategoryService
     {
         private readonly ApplicationDbContext _context;
@@ -14,8 +14,20 @@ namespace TahaMarket.Application.Services
             _context = context;
         }
 
+        // =========================
+        // CREATE CATEGORY
+        // =========================
         public async Task<Category> Create(Guid storeId, string name)
         {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new Exception("Category name is required");
+
+            var storeExists = await _context.Stores
+                .AnyAsync(s => s.Id == storeId);
+
+            if (!storeExists)
+                throw new Exception("Store not found");
+
             var category = new Category
             {
                 Name = name,
@@ -28,18 +40,46 @@ namespace TahaMarket.Application.Services
             return category;
         }
 
-        public async Task<List<Category>> GetMy(Guid storeId)
+        // =========================
+        // GET ALL BY STORE (PUBLIC)
+        // =========================
+        public async Task<List<CategoryResponse>> GetByStore(Guid storeId)
         {
+            var storeExists = await _context.Stores
+                .AnyAsync(s => s.Id == storeId);
+
+            if (!storeExists)
+                throw new Exception("Store not found");
+
             return await _context.Categories
                 .Where(c => c.StoreId == storeId)
+                .Select(c => new CategoryResponse
+                {
+                    Id = c.Id,
+                    Name = c.Name
+                })
                 .ToListAsync();
         }
 
-        public async Task<List<Category>> GetByStore(Guid storeId)
+        // =========================
+        // GET BY CATEGORY ID (PUBLIC)
+        // =========================
+        public async Task<object> GetById(Guid categoryId)
         {
-            return await _context.Categories
-                .Where(c => c.StoreId == storeId)
-                .ToListAsync();
+            var category = await _context.Categories
+                .Where(c => c.Id == categoryId)
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Name,
+                    c.StoreId
+                })
+                .FirstOrDefaultAsync();
+
+            if (category == null)
+                throw new Exception("Category not found");
+
+            return category;
         }
     }
 }

@@ -2,6 +2,7 @@
 using TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
 public class ProductService
@@ -10,110 +11,248 @@ public class ProductService
     private readonly ImageService _imageService;
     private readonly FileUrlService _fileUrl;
 
-    public ProductService(ApplicationDbContext context, ImageService imageService , FileUrlService fileUrl)
+    public ProductService(
+        ApplicationDbContext context,
+        ImageService imageService,
+        FileUrlService fileUrl)
     {
         _context = context;
         _imageService = imageService;
         _fileUrl = fileUrl;
     }
 
-    //  Create Product
+    // =========================
+    // CREATE PRODUCT
+    // =========================
     public async Task<ProductResponse> Create(Guid storeId, CreateProductRequest request)
     {
+        // =========================
+        // VALIDATE CATEGORY
+        // =========================
         var category = await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == request.CategoryId && c.StoreId == storeId);
 
         if (category == null)
-            throw new Exception("Category not found or does not belong to store");
+            throw new Exception("Category not found");
 
+        // =========================
+        // PARSE VARIANTS
+        // =========================
+        List<CreateVariantRequest> variants;
+
+        try
+        {
+            variants = System.Text.Json.JsonSerializer.Deserialize<List<CreateVariantRequest>>(
+                request.Variants,
+                new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }
+            ) ?? new List<CreateVariantRequest>();
+        }
+        catch
+        {
+            throw new Exception("Invalid variants format");
+        }
+
+        if (!variants.Any())
+            throw new Exception("Product must have at least one variant");
+
+        if (variants.Any(v => v.Price <= 0))
+            throw new Exception("Variant price must be greater than 0");
+
+        // =========================
+        // SAVE IMAGE
+        // =========================
         var imagePath = await _imageService.SaveImage(request.Image, "images/products");
 
+        // =========================
+        // CREATE PRODUCT
+        // =========================
         var product = new Product
         {
             Name = request.Name,
-            Price = request.Price,
+            Description = request.Description,
             ImageUrl = imagePath,
-            CategoryId = request.CategoryId
+            CategoryId = request.CategoryId,
+            StoreId = storeId,
+            Variants = variants.Select(v => new ProductVariant
+            {
+                Name = v.Size,
+                Price = v.Price
+            }).ToList()
         };
 
         _context.Products.Add(product);
         await _context.SaveChangesAsync();
 
+        var minPrice = product.Variants.Min(v => v.Price);
+
+        // =========================
+        // RESPONSE
+        // =========================
         return new ProductResponse
         {
             Id = product.Id,
             Name = product.Name,
-            Price = product.Price,
             ImageUrl = _fileUrl.GetFullUrl(product.ImageUrl),
             CategoryId = product.CategoryId,
-            CategoryName = category.Name
+            CategoryName = category.Name,
+            OldPrice = minPrice,
+            FinalPrice = minPrice,
+            HasDiscount = false,
+            DiscountPercentage = 0,
+            Variants = product.Variants.Select(v => new ProductVariantResponse
+            {
+                Id = v.Id,
+                Size = v.Name,
+                Price = v.Price
+            }).ToList()
         };
     }
 
-    public async Task<List<ProductResponse>> GetAllProducts()
+    // =========================
+    // GET ALL (HOME OPTIMIZED)
+    // =========================
+    public async Task<PaginatedResponse<ProductListDto>> GetAllProducts(PaginationRequest request)
     {
-        return await _context.Products
-            .Select(p => new ProductResponse
+        var now = DateTime.UtcNow;
+
+        var query = _context.Products
+            .AsNoTracking()
+            .Select(p => new
             {
-                Id = p.Id,
-                Name = p.Name,
-                Price = p.Price,
-                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
-                CategoryId = p.CategoryId,
-                CategoryName = p.Category.Name
-            })
+                p.Id,
+                p.Name,
+                p.ImageUrl,
+                p.CategoryId,
+
+                MinPrice = p.Variants.Any()
+                    ? p.Variants.Min(v => v.Price)
+                    : 0,
+
+                Discount = _context.Offers
+                    .Where(o =>
+                        o.IsActive &&
+                        o.StartDate <= now &&
+                        o.EndDate >= now &&
+                        (
+                            (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
+                            (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId)
+                        ))
+                    .OrderByDescending(o => o.TargetType == OfferTargetType.Product)
+                    .ThenByDescending(o => o.DiscountPercentage)
+                    .Select(o => (decimal?)o.DiscountPercentage)
+                    .FirstOrDefault() ?? 0,
+
+                AvgRating = _context.Ratings
+                    .Where(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
+                    .Average(r => (double?)r.Value) ?? 0,
+
+                CountRating = _context.Ratings
+                    .Count(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
+            });
+
+        var totalCount = await query.CountAsync();
+
+        var data = await query
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
             .ToListAsync();
+
+        var result = data.Select(p => new ProductListDto
+        {
+            Id = p.Id,
+            Name = p.Name,
+            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+
+            OldPrice = p.MinPrice,
+            DiscountPercentage = p.Discount,
+            HasDiscount = p.Discount > 0,
+
+            FinalPrice = p.Discount > 0
+                ? p.MinPrice - (p.MinPrice * p.Discount / 100)
+                : p.MinPrice,
+
+            AverageRating = p.AvgRating,
+            RatingsCount = p.CountRating
+        }).ToList();
+
+        return new PaginatedResponse<ProductListDto>
+        {
+            Page = request.Page,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
+            Data = result
+        };
     }
 
-    //  Get ALL products for Store 
-    public async Task<List<ProductResponse>> GetAllByStore(Guid storeId)
-    {
-        return await _context.Products
-            .Where(p => p.Category.StoreId == storeId)
-            .Select(p => new ProductResponse
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Price = p.Price,
-                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
-                CategoryId = p.CategoryId,
-                CategoryName = p.Category.Name
-            })
-            .ToListAsync();
-    }
-
-    //  Get By Category
-    public async Task<List<ProductResponse>> GetByCategory(Guid storeId, Guid categoryId)
-    {
-        return await _context.Products
-            .Where(p => p.CategoryId == categoryId &&
-                        p.Category.StoreId == storeId)
-            .Select(p => new ProductResponse
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Price = p.Price,
-                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
-                CategoryId = p.CategoryId,
-                CategoryName = p.Category.Name
-            })
-            .ToListAsync();
-    }
-
-    //  Details
-    public async Task<ProductResponse> GetDetails(Guid productId, Guid storeId)
+    // =========================
+    // GET DETAILS
+    // =========================
+    public async Task<ProductDetailsDto> GetDetails(Guid productId)
     {
         var product = await _context.Products
-            .Where(p => p.Id == productId &&
-                        p.Category.StoreId == storeId)
-            .Select(p => new ProductResponse
+            .Where(p => p.Id == productId)
+            .Select(p => new ProductDetailsDto
             {
                 Id = p.Id,
                 Name = p.Name,
-                Price = p.Price,
+                Description = p.Description,
                 ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+
+                StoreId = p.StoreId,
+                StoreName = p.Store.Name,
+
                 CategoryId = p.CategoryId,
-                CategoryName = p.Category.Name
+                CategoryName = p.Category.Name,
+
+                Variants = p.Variants.Select(v => new ProductVariantDto
+                {
+                    Id = v.Id,
+                    Name = v.Name,
+                    Price = v.Price
+                }).ToList(),
+
+                MinPrice = p.Variants.Any()
+                    ? p.Variants.Min(v => v.Price)
+                    : 0,
+
+                MaxPrice = p.Variants.Any()
+                    ? p.Variants.Max(v => v.Price)
+                    : 0,
+
+                Rating = new RatingSummaryDto
+                {
+                    Count = _context.Ratings.Count(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id),
+
+                    Average = _context.Ratings
+                        .Where(r => r.TargetType == RatingTargetType.Product &&
+                                    r.TargetId == p.Id)
+                        .Average(r => (double?)r.Value) ?? 0,
+
+                    Star1 = _context.Ratings.Count(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id && r.Value == 1),
+
+                    Star2 = _context.Ratings.Count(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id && r.Value == 2),
+
+                    Star3 = _context.Ratings.Count(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id && r.Value == 3),
+
+                    Star4 = _context.Ratings.Count(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id && r.Value == 4),
+
+                    Star5 = _context.Ratings.Count(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id && r.Value == 5)
+                }
             })
             .FirstOrDefaultAsync();
 
@@ -123,188 +262,154 @@ public class ProductService
         return product;
     }
 
-    //  Update
+    // ===========================
+    // Get By Category 
+    // ===========================
+
+    public async Task<PaginatedResponse<ProductListDto>> GetByCategory(
+    Guid categoryId,
+    PaginationRequest request)
+    {
+        var query = _context.Products
+            .AsNoTracking()
+            .Where(p => p.CategoryId == categoryId)
+            .Select(p => new ProductListDto
+            {
+                Id = p.Id,
+                Name = p.Name,
+                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+
+                // price from variants
+                OldPrice = p.Variants.Any()
+                    ? p.Variants.Min(v => v.Price)
+                    : 0,
+
+                FinalPrice = p.Variants.Any()
+                    ? p.Variants.Min(v => v.Price)
+                    : 0,
+
+                HasDiscount = false,
+                DiscountPercentage = 0,
+
+                // rating (generic system)
+                AverageRating = _context.Ratings
+                    .Where(r => r.TargetType == RatingTargetType.Product
+                             && r.TargetId == p.Id)
+                    .Average(r => (double?)r.Value) ?? 0,
+
+                RatingsCount = _context.Ratings
+                    .Count(r => r.TargetType == RatingTargetType.Product
+                             && r.TargetId == p.Id)
+            });
+
+        var totalCount = await query.CountAsync();
+
+        var data = await query
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .ToListAsync();
+
+        return new PaginatedResponse<ProductListDto>
+        {
+            Page = request.Page,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
+            Data = data
+        };
+    }
+
+    // =======================
+    // Update 
+    // =======================
     public async Task Update(Guid productId, Guid storeId, UpdateProductRequest request)
     {
         var product = await _context.Products
-            .Include(p => p.Category)
-            .FirstOrDefaultAsync(p => p.Id == productId &&
-                                     p.Category.StoreId == storeId);
+            .Include(p => p.Variants)
+            .FirstOrDefaultAsync(p => p.Id == productId && p.StoreId == storeId);
 
         if (product == null)
             throw new Exception("Product not found");
 
-        product.Name = request.Name ?? product.Name;
-        product.Price = request.Price != 0 ? request.Price : product.Price;
+        // =========================
+        // UPDATE BASIC DATA
+        // =========================
+        if (!string.IsNullOrEmpty(request.Name))
+            product.Name = request.Name;
 
+        if (request.Description != null)
+            product.Description = request.Description;
+
+        // =========================
+        // UPDATE IMAGE
+        // =========================
         if (request.Image != null)
         {
-            product.ImageUrl = await _imageService.SaveImage(request.Image, "images/products");
+            product.ImageUrl = await _imageService.SaveImage(
+                request.Image,
+                "images/products"
+            );
+        }
+
+        // =========================
+        // UPDATE VARIANTS
+        // =========================
+        if (!string.IsNullOrEmpty(request.Variants))
+        {
+            List<CreateVariantRequest> variants;
+
+            try
+            {
+                variants = System.Text.Json.JsonSerializer.Deserialize<List<CreateVariantRequest>>(
+                    request.Variants,
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    }
+                ) ?? new List<CreateVariantRequest>();
+            }
+            catch
+            {
+                throw new Exception("Invalid variants format");
+            }
+
+            if (!variants.Any())
+                throw new Exception("Product must have at least one variant");
+
+            if (variants.Any(v => v.Price <= 0))
+                throw new Exception("Invalid variant price");
+
+           
+            _context.ProductVariants.RemoveRange(product.Variants);
+
+            
+            product.Variants = variants.Select(v => new ProductVariant
+            {
+                Name = v.Size,
+                Price = v.Price
+            }).ToList();
         }
 
         await _context.SaveChangesAsync();
     }
 
-    //  Delete
     public async Task Delete(Guid productId, Guid storeId)
     {
         var product = await _context.Products
-            .Include(p => p.Category)
-            .FirstOrDefaultAsync(p => p.Id == productId &&
-                                     p.Category.StoreId == storeId);
+            .FirstOrDefaultAsync(p => p.Id == productId && p.StoreId == storeId);
 
         if (product == null)
             throw new Exception("Product not found");
 
+        // delete ratings
+        var ratings = _context.Ratings.Where(r =>
+            r.TargetType == RatingTargetType.Product &&
+            r.TargetId == productId);
+
+        _context.Ratings.RemoveRange(ratings);
+
+        // delete product
         _context.Products.Remove(product);
+
         await _context.SaveChangesAsync();
-    }
-
-    // Random Products for Home Page
-    public async Task<List<object>> GetRandomProducts(int count = 10)
-    {
-        return await _context.Products
-            .OrderBy(r => Guid.NewGuid()) // random
-            .Take(count)
-            .Select(p => new
-            {
-                p.Id,
-                p.Name,
-                p.Price,
-                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
-
-                Category = new
-                {
-                    p.Category.Id,
-                    p.Category.Name
-                },
-
-                Store = new
-                {
-                    p.Category.Store.Id,
-                    p.Category.Store.Name
-                }
-            })
-            .ToListAsync<object>();
-    }
-
-
-    //  Get All Products with Pagination
-    public async Task<PaginatedResponse<object>> GetAllProducts(PaginationRequest request)
-    {
-        var query = _context.Products.AsQueryable();
-
-        var totalCount = await query.CountAsync();
-
-        var data = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .Select(p => new
-            {
-                p.Id,
-                p.Name,
-                p.Price,
-                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
-
-                Category = new
-                {
-                    p.Category.Id,
-                    p.Category.Name
-                },
-
-                Store = new
-                {
-                    p.Category.Store.Id,
-                    p.Category.Store.Name
-                }
-            })
-            .ToListAsync<object>();
-
-        return new PaginatedResponse<object>
-        {
-            Page = request.Page,
-            TotalCount = totalCount,
-            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
-            Data = data
-        };
-    }
-
-    // Get Product With fulter
-    public async Task<PaginatedResponse<object>> GetFilteredProducts(
-    Guid? storeId,
-    Guid? categoryId,
-    PaginationRequest request)
-    {
-        var query = _context.Products.AsQueryable();
-
-        if (storeId != null)
-            query = query.Where(p => p.Category.StoreId == storeId);
-
-        if (categoryId != null)
-            query = query.Where(p => p.CategoryId == categoryId);
-
-        var totalCount = await query.CountAsync();
-
-        var data = await query
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .Select(p => new
-            {
-                p.Id,
-                p.Name,
-                p.Price,
-                ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
-                Category = p.Category.Name,
-                Store = p.Category.Store.Name
-            })
-            .ToListAsync<object>();
-
-        return new PaginatedResponse<object>
-        {
-            Page = request.Page,
-            TotalCount = totalCount,
-            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
-            Data = data
-        };
-    }
-
-    // Search Products by Name
-    public async Task<PaginatedResponse<object>> Search(string text, PaginationRequest request)
-    {
-        var query = _context.Products
-            .Where(p => p.Name.Contains(text));
-
-        var totalCount = await query.CountAsync();
-
-        
-        var products = await query
-            .Include(p => p.Category)
-            .ThenInclude(c => c.Store)
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .ToListAsync();
-
-        
-        var data = products.Select(p => new
-        {
-            id = p.Id,
-            name = p.Name,
-            price = p.Price,
-            imageUrl = _fileUrl.GetFullUrl(p.ImageUrl), 
-            category = p.Category.Name,
-            store = new
-            {
-                id = p.Category.Store.Id,
-                name = p.Category.Store.Name
-            }
-        }).ToList<object>();
-
-        return new PaginatedResponse<object>
-        {
-            Page = request.Page,
-            TotalCount = totalCount,
-            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
-            Data = data
-        };
     }
 }

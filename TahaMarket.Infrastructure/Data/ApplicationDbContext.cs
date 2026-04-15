@@ -18,15 +18,16 @@ namespace TahaMarket.Infrastructure.Data
         public DbSet<Order> Orders { get; set; }
         public DbSet<OrderItem> OrderItems { get; set; }
         public DbSet<UserAddress> UserAddresses { get; set; }
-
-        public DbSet<StoreRating> StoreRatings { get; set; }
-        public DbSet<ProductRating> ProductRatings { get; set; }
+        public DbSet<Rating> Ratings { get; set; }
+        public DbSet<ProductVariant> ProductVariants { get; set; }
+        public DbSet<StoreSection> storeSections { get; set; }
+        public DbSet<Offer> Offers { get; set; }
         public DbSet<OtpCode> OtpCodes { get; set; }
         public DbSet<Favorite> Favorites { get; set; }
         public DbSet<Delivery> Deliveries { get; set; }
         public DbSet<DeliveryOrder> DeliveryOrders { get; set; }
         public DbSet<DeliveryTransaction> DeliveryTransactions { get; set; }
-        public DbSet<DeliveryRating> DeliveryRatings { get; set; }
+        
         public DbSet<Notification> Notifications { get; set; }
 
         // ------------------- Model Creating -------------------
@@ -35,56 +36,74 @@ namespace TahaMarket.Infrastructure.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            // ------------------- Store -> Categories -------------------
+            // =========================================================
+            // STORE -> CATEGORY (KEEP CASCADE OK)
+            // =========================================================
             modelBuilder.Entity<Category>()
                 .HasOne(c => c.Store)
                 .WithMany(s => s.Categories)
                 .HasForeignKey(c => c.StoreId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // ------------------- Category -> Products -------------------
+            // =========================================================
+            // CATEGORY -> PRODUCTS (REMOVE CASCADE ISSUE)
+            // =========================================================
             modelBuilder.Entity<Product>()
                 .HasOne(p => p.Category)
                 .WithMany(c => c.Products)
                 .HasForeignKey(p => p.CategoryId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // ------------------- Store -> Orders -------------------
+            // =========================================================
+            // STORE -> PRODUCTS (NO ACTION TO AVOID CYCLE)
+            // =========================================================
+            modelBuilder.Entity<Product>()
+                .HasOne(p => p.Store)
+                .WithMany(s => s.Products)
+                .HasForeignKey(p => p.StoreId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // =========================================================
+            // STORE -> ORDERS
+            // =========================================================
             modelBuilder.Entity<Order>()
                 .HasOne(o => o.Store)
                 .WithMany()
                 .HasForeignKey(o => o.StoreId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // ------------------- User -> Orders -------------------
+            // =========================================================
+            // USER -> ORDERS
+            // =========================================================
             modelBuilder.Entity<Order>()
                 .HasOne(o => o.User)
                 .WithMany()
                 .HasForeignKey(o => o.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // ------------------- Order -> OrderItems -------------------
+            // =========================================================
+            // ORDER -> ORDER ITEMS
+            // =========================================================
             modelBuilder.Entity<OrderItem>()
                 .HasOne(oi => oi.Order)
                 .WithMany(o => o.Items)
                 .HasForeignKey(oi => oi.OrderId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // ------------------- Product -> OrderItems -------------------
             modelBuilder.Entity<OrderItem>()
                 .HasOne(oi => oi.Product)
                 .WithMany()
                 .HasForeignKey(oi => oi.ProductId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // ------------------- User -> Addresses -------------------
-          
+            // =========================================================
+            // USER -> ADDRESSES
+            // =========================================================
             modelBuilder.Entity<UserAddress>()
                 .HasOne(a => a.User)
                 .WithMany(u => u.Addresses)
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-
 
             modelBuilder.Entity<Order>()
                 .HasOne(o => o.UserAddress)
@@ -98,16 +117,9 @@ namespace TahaMarket.Infrastructure.Data
                 .HasForeignKey(o => o.DeliveryId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-
-            // ------------------- Unique Constraints -------------------
-            modelBuilder.Entity<User>()
-                .HasIndex(u => u.PhoneNumber)
-                .IsUnique();
-
-        modelBuilder.Entity<Store>()
-                .HasIndex(s => s.PhoneNumber)
-                .IsUnique();
-
+            // =========================================================
+            // FAVORITES
+            // =========================================================
             modelBuilder.Entity<Favorite>()
                 .HasOne(f => f.User)
                 .WithMany()
@@ -119,12 +131,44 @@ namespace TahaMarket.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(f => f.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
-            modelBuilder.Entity<OtpCode>()
-            .HasIndex(o => o.PhoneNumber);
+
+            // =========================================================
+            // PRODUCT VARIANTS
+            // =========================================================
+            modelBuilder.Entity<ProductVariant>()
+                .HasOne(v => v.Product)
+                .WithMany(p => p.Variants)
+                .HasForeignKey(v => v.ProductId);
+
+            // =========================================================
+            // STORE SECTION
+            // =========================================================
+            modelBuilder.Entity<Store>()
+                .HasOne(s => s.StoreSection)
+                .WithMany(ss => ss.Stores)
+                .HasForeignKey(s => s.StoreSectionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // =========================================================
+            // UNIQUE INDEXES
+            // =========================================================
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.PhoneNumber)
+                .IsUnique();
+
+            modelBuilder.Entity<Store>()
+                .HasIndex(s => s.PhoneNumber)
+                .IsUnique();
 
 
+            // =========================================================
+            // OTHER INDEXES
+            // =========================================================
+            modelBuilder.Entity<Favorite>()
+                .HasIndex(f => f.UserId);
+
             modelBuilder.Entity<OtpCode>()
-             .HasIndex(o => o.PhoneNumber);
+                .HasIndex(o => o.PhoneNumber);
 
             modelBuilder.Entity<DeliveryOrder>()
                 .HasIndex(x => x.OrderId);
@@ -135,10 +179,16 @@ namespace TahaMarket.Infrastructure.Data
             modelBuilder.Entity<DeliveryTransaction>()
                 .HasIndex(x => x.DeliveryId);
 
+            // =========================================================
+            // ENUM CONVERSION
+            // =========================================================
             modelBuilder.Entity<Order>()
                 .Property(o => o.Status)
                 .HasConversion<string>();
 
+            modelBuilder.Entity<User>()
+                .Property(u => u.UserType)
+                .HasConversion<int>();
 
             // ------------------- Admin Seed -------------------
             //modelBuilder.Entity<User>().HasData(new User

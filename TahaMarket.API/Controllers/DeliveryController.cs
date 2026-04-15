@@ -14,51 +14,68 @@ public class DeliveryController : ControllerBase
     }
 
     // =========================
-    // CREATE DELIVERY (Admin)
+    // CREATE DELIVERY (ADMIN ONLY)
     // =========================
     [Authorize(Roles = "Admin")]
     [HttpPost("create")]
-    public async Task<IActionResult> Create(CreateDeliveryRequest request)
+    public async Task<IActionResult> Create([FromBody] CreateDeliveryRequest request)
     {
         var result = await _service.Create(request);
         return Ok(result);
     }
 
     // =========================
-    // ASSIGN ORDER
+    // ASSIGN ORDER (ADMIN / STORE)
     // =========================
-    [Authorize(Roles = "Store,Admin")]
+    [Authorize(Roles = "Admin,Store")]
     [HttpPost("assign")]
-    public async Task<IActionResult> Assign(AssignOrderRequest request)
+    public async Task<IActionResult> Assign([FromBody] AssignOrderRequest request)
     {
-        await _service.AssignOrder(request.OrderId, request.DeliveryId);
-        return Ok(new { message = "Assigned successfully" });
+        await _service.AssignOrder(
+            request.OrderId,
+            request.DeliveryId,
+            request.AssignedBy,
+            request.ManualFee
+        );
+
+        return Ok(new
+        {
+            message = "Order assigned successfully"
+        });
     }
 
     // =========================
-    // ACCEPT ORDER
+    // ACCEPT ORDER (DELIVERY)
     // =========================
     [Authorize(Roles = "Delivery")]
     [HttpPost("accept/{orderId}")]
     public async Task<IActionResult> Accept(Guid orderId)
     {
         await _service.AcceptOrder(orderId);
-        return Ok(new { message = "Order picked" });
+
+        return Ok(new
+        {
+            message = "Order picked successfully"
+        });
     }
 
     // =========================
-    // DELIVER ORDER
+    // DELIVER ORDER (DELIVERY)
     // =========================
     [Authorize(Roles = "Delivery")]
     [HttpPost("deliver/{orderId}")]
     public async Task<IActionResult> Deliver(Guid orderId)
     {
         await _service.DeliverOrder(orderId);
-        return Ok(new { message = "Delivered successfully" });
+
+        return Ok(new
+        {
+            message = "Order delivered successfully"
+        });
     }
 
     // =========================
-    // MY ORDERS
+    // GET MY ORDERS (DELIVERY)
     // =========================
     [Authorize(Roles = "Delivery")]
     [HttpGet("my-orders")]
@@ -69,7 +86,7 @@ public class DeliveryController : ControllerBase
     }
 
     // =========================
-    // PROFILE
+    // GET PROFILE (DELIVERY)
     // =========================
     [Authorize(Roles = "Delivery")]
     [HttpGet("profile")]
@@ -80,7 +97,7 @@ public class DeliveryController : ControllerBase
     }
 
     // =========================
-    // UPDATE PROFILE
+    // UPDATE PROFILE (DELIVERY)
     // =========================
     [Authorize(Roles = "Delivery")]
     [HttpPut("update-profile")]
@@ -91,13 +108,17 @@ public class DeliveryController : ControllerBase
     }
 
     // =========================
-    // LOGOUT
+    // LOGOUT (DELIVERY)
     // =========================
     [Authorize(Roles = "Delivery")]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
         await _service.Logout();
-        return Ok(new { message = "Logged out successfully" });
+
+        return Ok(new
+        {
+            message = "Logged out successfully"
+        });
     }
-} 
+}
