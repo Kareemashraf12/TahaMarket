@@ -81,5 +81,20 @@ namespace TahaMarket.Application.Services
 
             return category;
         }
+
+        // =========================
+        // DELETE CATEGORY
+        // =========================
+        public async Task Delete(Guid categoryId)
+        {
+            var category = await _context.Categories
+                .FirstOrDefaultAsync(c => c.Id == categoryId);
+
+            if (category == null)
+                throw new Exception("Category not found");
+
+            _context.Categories.Remove(category);
+            await _context.SaveChangesAsync();
+        }
     }
 }

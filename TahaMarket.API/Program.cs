@@ -34,6 +34,7 @@ builder.Services.AddScoped<UserAddressService>();
 builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<StoreSectionService>();
 builder.Services.AddScoped<OfferService>();
+builder.Services.AddScoped<SearchService>();
 builder.Services.AddMemoryCache();
 
 

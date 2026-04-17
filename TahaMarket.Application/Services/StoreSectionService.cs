@@ -1,7 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
+using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
 public class StoreSectionService
@@ -9,15 +11,16 @@ public class StoreSectionService
     private readonly ApplicationDbContext _context;
     private readonly ImageService _imageService;
     private readonly FileUrlService _fileUrl;
-
+    private readonly IMemoryCache _cache;
     public StoreSectionService(
         ApplicationDbContext context,
         ImageService imageService,
-        FileUrlService fileUrl)
+        FileUrlService fileUrl, IMemoryCache cache)
     {
         _context = context;
         _imageService = imageService;
         _fileUrl = fileUrl;
+        _cache = cache;
     }
 
     // =========================================
@@ -45,6 +48,87 @@ public class StoreSectionService
             Name = section.Name,
             ImageUrl = _fileUrl.GetFullUrl(section.ImageUrl)
         };
+    }
+
+
+    // ==========================
+    // Get Stores By Section
+    // ==========================
+    public async Task<PaginatedResponse<StoreResponse>> GetStoresBySection(
+     Guid sectionId,
+     PaginationRequest request)
+    {
+        // =========================
+        // VALIDATION
+        // =========================
+        if (request.Page <= 0) request.Page = 1;
+        if (request.PageSize <= 0 || request.PageSize > 50) request.PageSize = 10;
+
+        var cacheKey = $"stores_section_{sectionId}_{request.Page}_{request.PageSize}";
+
+        // =========================
+        // CACHE
+        // =========================
+        if (_cache.TryGetValue(cacheKey, out PaginatedResponse<StoreResponse> cachedData))
+            return cachedData;
+
+        // =========================
+        // BASE QUERY
+        // =========================
+        var baseQuery = _context.Stores
+            .AsNoTracking()
+            .Where(s => s.StoreSectionId == sectionId);
+
+        var totalCount = await baseQuery.CountAsync();
+
+        // =========================
+        // OPTIMIZED QUERY (SQL LEVEL)
+        // =========================
+        var data = await baseQuery
+            .OrderByDescending(s => s.Id)
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(s => new
+            {
+                s.Id,
+                s.Name,
+                s.ImageUrl,
+                s.Description,
+
+                AvgRating = _context.Ratings
+                    .Where(r => r.TargetType == RatingTargetType.Store && r.TargetId == s.Id)
+                    .Average(r => (double?)r.Value) ?? 0
+            })
+            .ToListAsync();
+
+        // =========================
+        // MAPPING (C# LEVEL)
+        // =========================
+        var stores = data.Select(x => new StoreResponse
+        {
+            Id = x.Id,
+            Name = x.Name,
+            ImageUrl = x.ImageUrl != null
+                ? _fileUrl.GetFullUrl(x.ImageUrl)
+                : null,
+            Description = x.Description,
+            AverageRating = x.AvgRating
+        }).ToList();
+
+        var response = new PaginatedResponse<StoreResponse>
+        {
+            Page = request.Page,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
+            Data = stores
+        };
+
+        // =========================
+        // SET CACHE (1 minute)
+        // =========================
+        _cache.Set(cacheKey, response, TimeSpan.FromMinutes(1));
+
+        return response;
     }
 
     // =========================================
@@ -92,7 +176,7 @@ public class StoreSectionService
         if (section == null)
             throw new Exception("Section not found");
 
-        // ⚠️ optional: check if stores exist
+        //  optional: check if stores exist
         var hasStores = await _context.Stores
             .AnyAsync(s => s.StoreSectionId == id);
 

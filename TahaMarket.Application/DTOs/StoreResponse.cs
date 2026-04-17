@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 
 namespace TahaMarket.Application.DTOs
 {
-    namespace TahaMarket.Application.DTOs
-    {
+    
         public class StoreResponse
         {
             public Guid Id { get; set; }
@@ -15,10 +14,10 @@ namespace TahaMarket.Application.DTOs
             public string Name { get; set; }
 
             public string ImageUrl { get; set; }
-            public string Description { get; set; }
+            public string? Description { get; set; }
 
             
             public double AverageRating { get; set; }
         }
-    }
+
 }

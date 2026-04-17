@@ -76,4 +76,14 @@ public class StoreSectionController : ControllerBase
             message = "Section deleted successfully"
         });
     }
+
+    [AllowAnonymous]
+    [HttpGet("GetStoreBySection/{sectionId}")]
+    public async Task<IActionResult> GetStoresBySection(
+    Guid sectionId,
+    [FromQuery] PaginationRequest request)
+    {
+        var result = await _service.GetStoresBySection(sectionId, request);
+        return Ok(result);
+    }
 }

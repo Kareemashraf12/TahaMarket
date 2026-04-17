@@ -1,33 +1,120 @@
-﻿namespace TahaMarket.Application.Services.Common
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using TahaMarket.Application.DTOs;
+using TahaMarket.Domain.Entities;
+using TahaMarket.Infrastructure.Data;
+
+namespace TahaMarket.Application.Services.Common
 {
     public class DeliveryPricingService
     {
-        // Default values (fallback only)
-        private decimal _baseFee = 10m;
-        private decimal _pricePerKm = 3m;
-        private decimal _minFee = 15m;
+        private readonly ApplicationDbContext _context;
+        private readonly IMemoryCache _cache;
+
+        private const string CACHE_KEY = "delivery_pricing_latest";
+
+        public DeliveryPricingService(
+            ApplicationDbContext context,
+            IMemoryCache cache)
+        {
+            _context = context;
+            _cache = cache;
+        }
 
         // =========================
-        // SET FROM ADMIN (later DB/config)
+        // SET PRICING (ADMIN)
         // =========================
-        public void SetPricing(decimal baseFee, decimal pricePerKm, decimal minFee)
+        public async Task SetPricing(decimal baseFee, decimal pricePerKm, decimal minFee, decimal maxFee)
         {
-            _baseFee = baseFee;
-            _pricePerKm = pricePerKm;
-            _minFee = minFee;
+            // VALIDATION
+            if (baseFee < 0)
+                throw new Exception("Base fee cannot be negative");
+
+            if (pricePerKm <= 0)
+                throw new Exception("Price per km must be greater than 0");
+
+            if (minFee < 0 || maxFee <= 0)
+                throw new Exception("Invalid min/max fee");
+
+            if (minFee > maxFee)
+                throw new Exception("Min fee cannot be greater than max fee");
+
+            // CREATE NEW VERSION ( save History )
+            var pricing = new DeliveryPricing
+            {
+                BaseFee = baseFee,
+                PricePerKm = pricePerKm,
+                MinFee = minFee,
+                MaxFee = maxFee,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.DeliveryPricings.Add(pricing);
+            await _context.SaveChangesAsync();
+
+            
+            _cache.Remove(CACHE_KEY);
+        }
+
+        // =========================
+        // GET LATEST PRICING (CACHED)
+        // =========================
+        private async Task<DeliveryPricing> GetLatestPricing()
+        {
+            // CHECK CACHE
+            if (_cache.TryGetValue(CACHE_KEY, out DeliveryPricing cachedPricing))
+                return cachedPricing;
+
+            // GET FROM DB
+            var pricing = await _context.DeliveryPricings
+                .AsNoTracking()
+                .OrderByDescending(p => p.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (pricing == null)
+                throw new Exception("Delivery pricing is not configured");
+
+            // SAVE IN CACHE (5 minutes)
+            _cache.Set(CACHE_KEY, pricing, TimeSpan.FromMinutes(5));
+
+            return pricing;
         }
 
         // =========================
         // CALCULATE DELIVERY FEE
         // =========================
-        public decimal CalculateFee(double distanceKm)
+        public async Task<decimal> CalculateFee(double distanceKm)
         {
-            var fee = _baseFee + ((decimal)distanceKm * _pricePerKm);
+            var pricing = await GetLatestPricing();
 
-            if (fee < _minFee)
-                fee = _minFee;
+            var fee = pricing.BaseFee + ((decimal)distanceKm * pricing.PricePerKm);
+
+            // APPLY MIN
+            if (fee < pricing.MinFee)
+                fee = pricing.MinFee;
+
+            // APPLY MAX
+            if (fee > pricing.MaxFee)
+                fee = pricing.MaxFee;
 
             return Math.Round(fee, 2);
+        }
+
+        // =========================
+        // GET CURRENT PRICING
+        // =========================
+        public async Task<DeliveryPricingResponse> GetCurrentPricing()
+        {
+            var pricing = await GetLatestPricing();
+
+            return new DeliveryPricingResponse
+            {
+                BaseFee = pricing.BaseFee,
+                PricePerKm = pricing.PricePerKm,
+                MinFee = pricing.MinFee,
+                MaxFee = pricing.MaxFee,
+                CreatedAt = pricing.CreatedAt
+            };
         }
     }
 }

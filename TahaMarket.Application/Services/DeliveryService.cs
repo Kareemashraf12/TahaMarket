@@ -88,13 +88,13 @@ public class DeliveryService
     // ASSIGN ORDER (ADMIN OR STORE)
     // =========================
     public async Task AssignOrder(
-    Guid orderId,
-    Guid deliveryId,
-    AssignedByType assignedBy,
-    decimal? manualFee = null)
+     Guid orderId,
+     Guid deliveryId,
+     AssignedByType assignedBy,
+     decimal? manualFee = null)
     {
         // =========================
-        // VALIDATION (ENUM FIX)
+        // VALIDATION
         // =========================
         if (assignedBy != AssignedByType.Admin &&
             assignedBy != AssignedByType.Store)
@@ -132,12 +132,12 @@ public class DeliveryService
         );
 
         // =========================
-        // AUTO FEE
+        // AUTO FEE (FIXED )
         // =========================
-        var autoFee = _pricing.CalculateFee(distanceKm);
+        var autoFee = await _pricing.CalculateFee(distanceKm);
 
         // =========================
-        // FINAL FEE (override optional)
+        // FINAL FEE
         // =========================
         var finalFee = manualFee ?? autoFee;
 
@@ -152,7 +152,6 @@ public class DeliveryService
         _context.DeliveryOrders.Add(deliveryOrder);
         await _context.SaveChangesAsync();
     }
-
     // =========================
     // ACCEPT ORDER (DELIVERY)
     // =========================
@@ -301,6 +300,7 @@ public class DeliveryService
         };
     }
 
+   
     // =========================
     // LOGOUT
     // =========================

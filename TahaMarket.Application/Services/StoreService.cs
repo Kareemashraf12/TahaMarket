@@ -1,8 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using TahaMarket.Application.DTOs;
-using TahaMarket.Application.DTOs.TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
-using TahaMarket.Domain.Entities;
 using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 

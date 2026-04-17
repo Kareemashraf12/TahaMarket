@@ -52,4 +52,12 @@ public class CategoryController : ControllerBase
 
         return Ok(result);
     }
+
+    [Authorize(Roles = "Admin")]
+    [HttpDelete("{categoryId}")]
+    public async Task<IActionResult> DeleteCategory(Guid categoryId)
+    {
+        await _service.Delete(categoryId);
+        return Ok(new { message = "Category deleted successfully" });
+    }
 }

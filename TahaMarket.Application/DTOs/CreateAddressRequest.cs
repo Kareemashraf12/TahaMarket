@@ -8,6 +8,7 @@ namespace TahaMarket.Application.DTOs
 {
     public class CreateAddressRequest
     {
+        public string AddressType { get; set; }
         public string City { get; set; }
         public string Area { get; set; }
         public string Street { get; set; }

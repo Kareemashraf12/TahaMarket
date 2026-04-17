@@ -6,7 +6,7 @@
 
         public Guid UserId { get; set; }
         public User User { get; set; } = null!;
-
+        public string AddressType { get; set; }
         public string City { get; set; } = null!;
         public string Area { get; set; } = null!;
         public string Street { get; set; } = null!;

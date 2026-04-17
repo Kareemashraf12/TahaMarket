@@ -49,6 +49,7 @@ public class UserAddressService
         var address = new UserAddress
         {
             UserId = userId,
+            AddressType = request.AddressType,
             City = request.City,
             Area = request.Area,
             Street = request.Street,
@@ -99,6 +100,7 @@ public class UserAddressService
                 item.IsDefault = false;
         }
 
+        address.AddressType = request.AddressType ?? address.AddressType;
         address.City = request.City ?? address.City;
         address.Area = request.Area ?? address.Area;
         address.Street = request.Street ?? address.Street;

@@ -27,7 +27,7 @@ namespace TahaMarket.Infrastructure.Data
         public DbSet<Delivery> Deliveries { get; set; }
         public DbSet<DeliveryOrder> DeliveryOrders { get; set; }
         public DbSet<DeliveryTransaction> DeliveryTransactions { get; set; }
-        
+        public DbSet<DeliveryPricing> DeliveryPricings { get; set; }
         public DbSet<Notification> Notifications { get; set; }
 
         // ------------------- Model Creating -------------------

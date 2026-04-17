@@ -412,4 +412,92 @@ public class ProductService
 
         await _context.SaveChangesAsync();
     }
+
+    public async Task<List<SpecialProductDto>> GetHotOffers()
+    {
+        var now = DateTime.UtcNow;
+
+        var products = await _context.Products
+            .Where(p => p.Variants.Any())
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.ImageUrl,
+                p.StoreId,
+                p.CategoryId,
+
+                Discount = _context.Offers
+                    .Where(o =>
+                        o.IsActive &&
+                        o.StartDate <= now &&
+                        o.EndDate >= now &&
+                        (
+                            (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
+                            (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId)
+                        ))
+                    .OrderByDescending(o => o.TargetType == OfferTargetType.Product)
+                    .ThenByDescending(o => o.DiscountPercentage)
+                    .Select(o => (decimal?)o.DiscountPercentage)
+                    .FirstOrDefault() ?? 0,
+
+                AvgRating = _context.Ratings
+                    .Where(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
+                    .Average(r => (double?)r.Value) ?? 0
+            })
+            .Where(p => p.Discount >= 50)
+            .ToListAsync();
+
+        return products.Select(p => new SpecialProductDto
+        {
+            Label = " عروض ما تتفوتش",
+            ProductId = p.Id,
+            ProductName = p.Name,
+            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl), 
+            StoreId = p.StoreId,
+            CategoryId = p.CategoryId,
+            AverageRating = p.AvgRating
+        }).ToList();
+    }
+
+
+    public async Task<List<SpecialProductDto>> GetTopSellingProducts(int take = 10)
+    {
+        var products = await _context.OrderItems
+            .GroupBy(oi => oi.ProductId)
+            .Select(g => new
+            {
+                ProductId = g.Key,
+                Count = g.Count()
+            })
+            .OrderByDescending(x => x.Count)
+            .Take(take)
+            .Join(_context.Products,
+                x => x.ProductId,
+                p => p.Id,
+                (x, p) => new
+                {
+                    p.Id,
+                    p.Name,
+                    p.ImageUrl,
+                    p.StoreId,
+                    p.CategoryId,
+
+                    AvgRating = _context.Ratings
+                        .Where(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
+                        .Average(r => (double?)r.Value) ?? 0
+                })
+            .ToListAsync();
+
+        return products.Select(p => new SpecialProductDto
+        {
+            Label = " الأكثر مبيعًا",
+            ProductId = p.Id,
+            ProductName = p.Name,
+            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl), 
+            StoreId = p.StoreId,
+            CategoryId = p.CategoryId,
+            AverageRating = p.AvgRating
+        }).ToList();
+    }
 }

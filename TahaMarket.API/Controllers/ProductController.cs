@@ -89,4 +89,21 @@ public class ProductController : ControllerBase
         var result = await _service.GetByCategory(categoryId, request);
         return Ok(result);
     }
+
+    [AllowAnonymous]
+    [HttpGet("top-selling")]
+    public async Task<IActionResult> GetTopSellingProducts([FromQuery] int take = 10)
+    {
+        var result = await _service.GetTopSellingProducts(take);
+        return Ok(result);
+    }
+
+    //  Get Hot Offers Products
+    [AllowAnonymous]
+    [HttpGet("hot-offers")]
+    public async Task<IActionResult> GetHotOffers()
+    {
+        var result = await _service.GetHotOffers();
+        return Ok(result);
+    }
 }
