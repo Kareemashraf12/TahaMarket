@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TahaMarket.Application.DTOs;
+using TahaMarket.Domain.Entities;
 
 [ApiController]
 [Route("api/delivery")]
@@ -29,19 +30,10 @@ public class DeliveryController : ControllerBase
     // =========================
     [Authorize(Roles = "Admin,Store")]
     [HttpPost("assign")]
-    public async Task<IActionResult> Assign([FromBody] AssignOrderRequest request)
+    public async Task<IActionResult> Assign(Guid orderId, Guid deliveryId)
     {
-        await _service.AssignOrder(
-            request.OrderId,
-            request.DeliveryId,
-            request.AssignedBy,
-            request.ManualFee
-        );
-
-        return Ok(new
-        {
-            message = "Order assigned successfully"
-        });
+        await _service.AssignOrder(orderId, deliveryId);
+        return Ok("Assigned successfully");
     }
 
     // =========================

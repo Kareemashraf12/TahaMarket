@@ -21,7 +21,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Middleware\" />
     <Folder Include="Extensions\" />
     <Folder Include="wwwroot\images\store-sections\" />
     <Folder Include="wwwroot\images\products\" />

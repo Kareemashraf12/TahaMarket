@@ -44,7 +44,7 @@ public class OfferController : ControllerBase
     // GET BY ID
     // =========================
     [AllowAnonymous]
-    [HttpGet("{id}")]
+    [HttpGet("GetById/{id}")]
     public async Task<IActionResult> GetById(Guid id)
     {
         var result = await _service.GetById(id);

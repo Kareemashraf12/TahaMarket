@@ -24,7 +24,7 @@ public class JwtService
         new Claim(ClaimTypes.NameIdentifier, id),
         new Claim(ClaimTypes.MobilePhone, phoneNumber ?? ""),
         new Claim(ClaimTypes.Role, role.ToString())
-    };
+        };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyString));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

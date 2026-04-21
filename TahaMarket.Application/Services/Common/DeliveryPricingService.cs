@@ -22,38 +22,53 @@ namespace TahaMarket.Application.Services.Common
         }
 
         // =========================
-        // SET PRICING (ADMIN)
+        // UPDATE PRICING (ADMIN)
         // =========================
-        public async Task SetPricing(decimal baseFee, decimal pricePerKm, decimal minFee, decimal maxFee)
+        public async Task<DeliveryPricingResponse> UpdatePricing(UpdateDeliveryPricingRequest request)
         {
+            // =========================
             // VALIDATION
-            if (baseFee < 0)
+            // =========================
+            if (request.BaseFee < 0)
                 throw new Exception("Base fee cannot be negative");
 
-            if (pricePerKm <= 0)
+            if (request.PricePerKm <= 0)
                 throw new Exception("Price per km must be greater than 0");
 
-            if (minFee < 0 || maxFee <= 0)
+            if (request.MinFee < 0 || request.MaxFee <= 0)
                 throw new Exception("Invalid min/max fee");
 
-            if (minFee > maxFee)
+            if (request.MinFee > request.MaxFee)
                 throw new Exception("Min fee cannot be greater than max fee");
 
-            // CREATE NEW VERSION ( save History )
+            // =========================
+            // SAVE NEW VERSION
+            // =========================
             var pricing = new DeliveryPricing
             {
-                BaseFee = baseFee,
-                PricePerKm = pricePerKm,
-                MinFee = minFee,
-                MaxFee = maxFee,
+                BaseFee = request.BaseFee,
+                PricePerKm = request.PricePerKm,
+                MinFee = request.MinFee,
+                MaxFee = request.MaxFee,
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.DeliveryPricings.Add(pricing);
             await _context.SaveChangesAsync();
 
-            
+            // =========================
+            // CLEAR CACHE
+            // =========================
             _cache.Remove(CACHE_KEY);
+
+            return new DeliveryPricingResponse
+            {
+                BaseFee = pricing.BaseFee,
+                PricePerKm = pricing.PricePerKm,
+                MinFee = pricing.MinFee,
+                MaxFee = pricing.MaxFee,
+                CreatedAt = pricing.CreatedAt
+            };
         }
 
         // =========================
@@ -61,11 +76,9 @@ namespace TahaMarket.Application.Services.Common
         // =========================
         private async Task<DeliveryPricing> GetLatestPricing()
         {
-            // CHECK CACHE
-            if (_cache.TryGetValue(CACHE_KEY, out DeliveryPricing cachedPricing))
-                return cachedPricing;
+            if (_cache.TryGetValue(CACHE_KEY, out DeliveryPricing cached))
+                return cached;
 
-            // GET FROM DB
             var pricing = await _context.DeliveryPricings
                 .AsNoTracking()
                 .OrderByDescending(p => p.CreatedAt)
@@ -74,8 +87,11 @@ namespace TahaMarket.Application.Services.Common
             if (pricing == null)
                 throw new Exception("Delivery pricing is not configured");
 
-            // SAVE IN CACHE (5 minutes)
-            _cache.Set(CACHE_KEY, pricing, TimeSpan.FromMinutes(5));
+            var cacheOptions = new MemoryCacheEntryOptions()
+                .SetSlidingExpiration(TimeSpan.FromMinutes(3))
+                .SetAbsoluteExpiration(TimeSpan.FromMinutes(10));
+
+            _cache.Set(CACHE_KEY, pricing, cacheOptions);
 
             return pricing;
         }
@@ -85,15 +101,16 @@ namespace TahaMarket.Application.Services.Common
         // =========================
         public async Task<decimal> CalculateFee(double distanceKm)
         {
+            if (distanceKm < 0)
+                throw new Exception("Invalid distance");
+
             var pricing = await GetLatestPricing();
 
             var fee = pricing.BaseFee + ((decimal)distanceKm * pricing.PricePerKm);
 
-            // APPLY MIN
             if (fee < pricing.MinFee)
                 fee = pricing.MinFee;
 
-            // APPLY MAX
             if (fee > pricing.MaxFee)
                 fee = pricing.MaxFee;
 

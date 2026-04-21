@@ -4,7 +4,7 @@ using System.Security.Claims;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services;
 
-[Authorize(Roles = "Customer")]
+[Authorize(Roles = "Customer,Admin")]
 [ApiController]
 [Route("api/user")]
 public class UserController : ControllerBase
@@ -35,7 +35,8 @@ public class UserController : ControllerBase
     // =========================================================
     // USER → Update Profile
     // =========================================================
-    [HttpPut("profile")]
+    [Authorize]
+    [HttpPut("Updateprofile")]
     public async Task<IActionResult> UpdateProfile([FromForm] UpdateUserProfileRequest request)
     {
         if (!ModelState.IsValid)

@@ -126,11 +126,6 @@ namespace TahaMarket.Infrastructure.Data
                 .HasForeignKey(f => f.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            modelBuilder.Entity<Favorite>()
-                .HasOne(f => f.Product)
-                .WithMany()
-                .HasForeignKey(f => f.ProductId)
-                .OnDelete(DeleteBehavior.Cascade);
 
             // =========================================================
             // PRODUCT VARIANTS

@@ -23,5 +23,7 @@ namespace TahaMarket.Domain.Entities
         public DateTime AssignedAt { get; set; } = DateTime.UtcNow;
         public DateTime? PickedAt { get; set; }
         public DateTime? DeliveredAt { get; set; }
+        public PaymentMethod PaymentMethod { get; set; }
+        public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
     }
 }

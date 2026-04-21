@@ -3,13 +3,15 @@ using Microsoft.AspNetCore.Localization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Globalization;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
+using TahaMarket.API.Middleware;
 using TahaMarket.Application.Services;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Infrastructure.Data;
 using TahaMarket.Infrastructure.Hubs;
-
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,6 +37,8 @@ builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<StoreSectionService>();
 builder.Services.AddScoped<OfferService>();
 builder.Services.AddScoped<SearchService>();
+builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<FavoriteService>();
 builder.Services.AddMemoryCache();
 
 
@@ -46,6 +50,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     })
     .AddViewLocalization()
     .AddDataAnnotationsLocalization();
@@ -91,7 +96,9 @@ builder.Services.AddAuthentication(options =>
             Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])
         ),
 
-        ClockSkew = TimeSpan.Zero
+        ClockSkew = TimeSpan.Zero ,
+        RoleClaimType = ClaimTypes.Role,
+        NameClaimType = ClaimTypes.NameIdentifier
     };
 });
 
@@ -132,6 +139,7 @@ var app = builder.Build();
 
 // ------------------- Middleware -------------------
 
+app.UseMiddleware<ExceptionMiddleware>();
 app.UseStaticFiles();
 
 app.UseSwagger();

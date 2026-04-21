@@ -52,30 +52,6 @@ public class OrderController : ControllerBase
     }
 
     // =========================
-    // STORE ACCEPT ORDER
-    // =========================
-    [Authorize(Roles = "Store")]
-    [HttpPost("accept/{orderId}")]
-    public async Task<IActionResult> Accept(Guid orderId)
-    {
-        var storeId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-        await _service.AcceptOrder(orderId, storeId);
-        return Ok(new { message = "Order accepted" });
-    }
-
-    // =========================
-    // STORE REJECT ORDER
-    // =========================
-    [Authorize(Roles = "Store")]
-    [HttpPost("reject/{orderId}")]
-    public async Task<IActionResult> Reject(Guid orderId)
-    {
-        var storeId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-        await _service.RejectOrder(orderId, storeId);
-        return Ok(new { message = "Order rejected" });
-    }
-
-    // =========================
     // STORE DASHBOARD
     // =========================
     [Authorize(Roles = "Store")]

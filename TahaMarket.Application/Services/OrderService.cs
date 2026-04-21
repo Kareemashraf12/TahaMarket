@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Domain.Entities;
+
 using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
 
@@ -18,24 +19,23 @@ public class OrderService
     // =========================
     public async Task<object> CreateOrder(Guid userId, CreateOrderRequest request)
     {
-        var store = await _context.Stores.FindAsync(request.StoreId);
-        if (store == null)
-            throw new Exception("Store not found");
-
-        var address = await _context.UserAddresses
-            .FirstOrDefaultAsync(a => a.Id == request.AddressId && a.UserId == userId);
-
-        if (address == null)
-            throw new Exception("Invalid address");
-
         var now = DateTime.UtcNow;
 
-        // -------------------------
-        // Load products in batch
-        // -------------------------
+        // =========================
+        // VALIDATION
+        // =========================
+        var store = await _context.Stores.FindAsync(request.StoreId)
+            ?? throw new Exception("Store not found");
+
+        var address = await _context.UserAddresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == request.AddressId && a.UserId == userId)
+            ?? throw new Exception("Invalid address");
+
         var productIds = request.Items.Select(x => x.ProductId).ToList();
 
         var products = await _context.Products
+            .AsNoTracking()
             .Include(p => p.Category)
             .Include(p => p.Variants)
             .Where(p => productIds.Contains(p.Id))
@@ -44,37 +44,43 @@ public class OrderService
         if (products.Count != productIds.Count)
             throw new Exception("One or more products not found");
 
-        // -------------------------
-        // Load active offers once
-        // -------------------------
         var offers = await _context.Offers
-            .Where(o =>
-                o.IsActive &&
-                o.StartDate <= now &&
-                o.EndDate >= now)
+            .AsNoTracking()
+            .Where(o => o.IsActive && o.StartDate <= now && o.EndDate >= now)
             .ToListAsync();
+
+        // =========================
+        // PAYMENT LOGIC
+        // =========================
+        var paymentMethod = request.PaymentMethod;
+
+        var isCOD = paymentMethod == PaymentMethod.COD;
 
         var order = new Order
         {
             UserId = userId,
             StoreId = request.StoreId,
             AddressId = request.AddressId,
-            Status = OrderStatus.Pending,
+
+            PaymentMethod = paymentMethod,
+
+            PaymentStatus = isCOD ? PaymentStatus.Paid : PaymentStatus.Pending,
+            Status = isCOD ? OrderStatus.Paid : OrderStatus.Pending,
+
             CreatedAt = now
         };
 
         decimal total = 0;
 
+        // =========================
+        // ITEMS CALCULATION
+        // =========================
         foreach (var item in request.Items)
         {
             var product = products.First(p => p.Id == item.ProductId);
 
-            // base price
-            var basePrice = product.Variants.Any()
-                ? product.Variants.Min(v => v.Price)
-                : throw new Exception("Product has no price");
+            var basePrice = product.Variants.Min(v => v.Price);
 
-            // offer logic (product OR category)
             var bestOffer = offers
                 .Where(o =>
                     (o.TargetType == OfferTargetType.Product && o.TargetId == product.Id) ||
@@ -82,15 +88,11 @@ public class OrderService
                 .OrderByDescending(o => o.DiscountPercentage)
                 .FirstOrDefault();
 
-            var discount = bestOffer?.DiscountPercentage ?? 0;
-
-            var finalPrice = basePrice;
-
-            if (discount > 0)
-                finalPrice = basePrice - (basePrice * discount / 100);
+            var finalPrice = bestOffer != null
+                ? basePrice - (basePrice * bestOffer.DiscountPercentage / 100)
+                : basePrice;
 
             var itemTotal = finalPrice * item.Quantity;
-
             total += itemTotal;
 
             order.Items.Add(new OrderItem
@@ -102,9 +104,12 @@ public class OrderService
             });
         }
 
+        // =========================
+        // FINAL CALCULATION
+        // =========================
         order.TotalPrice = total;
         order.DeliveryFee = 0;
-        order.FinalPrice = total + order.DeliveryFee;
+        order.FinalPrice = total;
 
         _context.Orders.Add(order);
         await _context.SaveChangesAsync();
@@ -112,72 +117,66 @@ public class OrderService
         return new
         {
             order.Id,
-            order.Status,
+            Status = order.Status.ToString(),
+            PaymentStatus = order.PaymentStatus.ToString(),
+            PaymentMethod = order.PaymentMethod.ToString(),
             order.TotalPrice,
-            order.FinalPrice
+            order.FinalPrice,
+            CreatedAt = order.CreatedAt
         };
     }
 
     // =========================
-    // GET USER ORDERS
-    // =========================
-    public async Task<object> GetUserOrders(Guid userId)
-    {
-        return await _context.Orders
-            .Where(o => o.UserId == userId)
-            .Include(o => o.Store)
-            .Include(o => o.Items)
-            .ThenInclude(i => i.Product)
-            .Select(o => new
-            {
-                o.Id,
-                Store = o.Store.Name,
-                Status = o.Status,
-                TotalPrice = o.TotalPrice,
-                FinalPrice = o.FinalPrice,
-                Items = o.Items.Select(i => new
-                {
-                    i.Product.Name,
-                    i.Quantity,
-                    i.Price,
-                    i.Note
-                }),
-                o.CreatedAt
-            })
-            .ToListAsync();
-    }
-
-    // =========================
-    // STORE DASHBOARD
+    // STORE DASHBOARD (UPDATED)
     // =========================
     public async Task<object> GetStoreDashboard(Guid storeId)
     {
         var today = DateTime.UtcNow.Date;
 
-        var totalRevenue = await _context.Orders
-            .Where(o =>
-                o.StoreId == storeId &&
-                (o.Status == OrderStatus.Accepted || o.Status == OrderStatus.Delivered) &&
-                o.CreatedAt >= today &&
-                o.CreatedAt < today.AddDays(1))
-            .SumAsync(o => (decimal?)o.FinalPrice) ?? 0;
+        var result = await _context.Orders
+            .Where(o => o.StoreId == storeId)
+            .GroupBy(o => 1)
+            .Select(g => new
+            {
+                TotalRevenue = g
+                    .Where(o =>
+                        o.Status == OrderStatus.Delivered &&
+                        o.CreatedAt >= today &&
+                        o.CreatedAt < today.AddDays(1))
+                    .Sum(o => (decimal?)o.FinalPrice) ?? 0,
 
-        var pendingOrders = await _context.Orders
-            .CountAsync(o => o.StoreId == storeId && o.Status == OrderStatus.Pending);
+                PendingOrders = g.Count(o => o.Status == OrderStatus.Pending),
+                PaidOrders = g.Count(o => o.Status == OrderStatus.Paid),
+                PreparingOrders = g.Count(o => o.Status == OrderStatus.Preparing),
+                ReadyOrders = g.Count(o => o.Status == OrderStatus.Ready),
+                AssignedOrders = g.Count(o => o.Status == OrderStatus.Assigned),
 
-        var deliveredOrders = await _context.Orders
-            .CountAsync(o => o.StoreId == storeId && o.Status == OrderStatus.Delivered);
+                
+                OutForDeliveryOrders = g.Count(o => o.Status == OrderStatus.Picked),
 
-        var rejectedOrders = await _context.Orders
-            .CountAsync(o => o.StoreId == storeId && o.Status == OrderStatus.Rejected);
+                DeliveredOrders = g.Count(o => o.Status == OrderStatus.Delivered),
+                CancelledOrders = g.Count(o => o.Status == OrderStatus.Cancelled)
+            })
+            .FirstOrDefaultAsync();
 
-        return new
+        // if no orders found
+        if (result == null)
         {
-            TotalRevenue = totalRevenue,
-            PendingOrders = pendingOrders,
-            DeliveredOrders = deliveredOrders,
-            RejectedOrders = rejectedOrders
-        };
+            return new
+            {
+                TotalRevenue = 0,
+                PendingOrders = 0,
+                PaidOrders = 0,
+                PreparingOrders = 0,
+                ReadyOrders = 0,
+                AssignedOrders = 0,
+                OutForDeliveryOrders = 0,
+                DeliveredOrders = 0,
+                CancelledOrders = 0
+            };
+        }
+
+        return result;
     }
 
     // =========================
@@ -216,39 +215,73 @@ public class OrderService
     }
 
     // =========================
-    // ACCEPT ORDER
+    // UPDATE ORDER STATUS (STORE)
     // =========================
-    public async Task AcceptOrder(Guid orderId, Guid storeId)
+    public async Task UpdateOrderStatus(Guid orderId, Guid storeId, OrderStatus newStatus)
     {
         var order = await _context.Orders.FindAsync(orderId);
 
         if (order == null || order.StoreId != storeId)
             throw new Exception("Order not found");
 
-        if (order.Status != OrderStatus.Pending)
-            throw new Exception("Invalid state");
+        // =========================
+        // BLOCK FINISHED ORDERS
+        // =========================
+        if (order.Status == OrderStatus.Delivered || order.Status == OrderStatus.Cancelled)
+            throw new Exception("Order already completed");
 
-        order.Status = OrderStatus.Accepted;
-        order.AcceptedAt = DateTime.UtcNow;
+        // =========================
+        // VALID TRANSITIONS
+        // =========================
+        var valid = order.Status switch
+        {
+            OrderStatus.Paid => new[] { OrderStatus.Preparing },
+            OrderStatus.Preparing => new[] { OrderStatus.Ready },
+            OrderStatus.Ready => new[] { OrderStatus.Assigned },
+            OrderStatus.Assigned => new[] { OrderStatus.Picked },
+            OrderStatus.Picked => new[] { OrderStatus.Delivered },
+
+            _ => Array.Empty<OrderStatus>()
+        };
+
+        if (!valid.Contains(newStatus))
+            throw new Exception($"Invalid transition from {order.Status} to {newStatus}");
+
+        // =========================
+        // APPLY STATUS
+        // =========================
+        order.Status = newStatus;
+
+        // =========================
+        // TIMESTAMPS
+        // =========================
+        var now = DateTime.UtcNow;
+
+        switch (newStatus)
+        {
+            case OrderStatus.Preparing:
+                order.AcceptedAt = now;
+                break;
+
+            case OrderStatus.Ready:
+                order.ReadyAt = now;
+                break;
+
+            case OrderStatus.Assigned:
+                order.AssignedAt = now;
+                break;
+
+            case OrderStatus.Picked:
+                order.PickedAt = now;
+                break;
+
+            case OrderStatus.Delivered:
+                order.DeliveredAt = now;
+                break;
+        }
 
         await _context.SaveChangesAsync();
     }
-
-    // =========================
-    // REJECT ORDER
-    // =========================
-    public async Task RejectOrder(Guid orderId, Guid storeId)
-    {
-        var order = await _context.Orders.FindAsync(orderId);
-
-        if (order == null || order.StoreId != storeId)
-            throw new Exception("Order not found");
-
-        order.Status = OrderStatus.Rejected;
-
-        await _context.SaveChangesAsync();
-    }
-
     // =========================
     // ADMIN GET ALL ORDERS
     // =========================
@@ -265,6 +298,61 @@ public class OrderService
                 o.Status,
                 o.TotalPrice,
                 o.FinalPrice
+            })
+            .ToListAsync();
+    }
+    // =========================
+    // CANCEL ORDER (USER)
+    // =========================
+    public async Task CancelOrder(Guid orderId, Guid userId)
+    {
+        var order = await _context.Orders
+            .FirstOrDefaultAsync(o => o.Id == orderId && o.UserId == userId);
+
+        if (order == null)
+            throw new Exception("Order not found");
+
+        if (order.Status != OrderStatus.Pending &&
+            order.Status != OrderStatus.Paid &&
+            order.Status != OrderStatus.Preparing)
+        {
+            throw new Exception("Cannot cancel this order now");
+        }
+
+        order.Status = OrderStatus.Cancelled;
+
+        await _context.SaveChangesAsync();
+    }
+
+    // =========================
+    // USER GET ORDERS
+    // =========================
+    public async Task<object> GetUserOrders(Guid userId)
+    {
+        return await _context.Orders
+            .AsNoTracking()
+            .Where(o => o.UserId == userId)
+            .Select(o => new
+            {
+                o.Id,
+                Store = o.Store.Name,
+
+                Status = o.Status.ToString(),
+                PaymentStatus = o.PaymentStatus.ToString(),
+                PaymentMethod = o.PaymentMethod.ToString(),
+
+                o.TotalPrice,
+                o.FinalPrice,
+
+                Items = o.Items.Select(i => new
+                {
+                    Product = i.Product.Name,
+                    i.Quantity,
+                    i.Price,
+                    i.Note
+                }),
+
+                o.CreatedAt
             })
             .ToListAsync();
     }
@@ -299,25 +387,50 @@ public class OrderService
     }
 
     // =========================
-    // ADMIN DASHBOARD
+    // ADMIN DASHBOARD 
     // =========================
     public async Task<object> GetAdminDashboard()
     {
-        var stores = await _context.Stores
-            .Include(s => s.Orders)
+        var result = await _context.Stores
+            .AsNoTracking()
+            .Select(s => new
+            {
+                StoreId = s.Id,
+                StoreName = s.Name,
+
+                // =========================
+                // REVENUE (only delivered)
+                // =========================
+                TotalRevenue = s.Orders
+                    .Where(o => o.Status == OrderStatus.Delivered)
+                    .Sum(o => (decimal?)o.FinalPrice) ?? 0,
+
+                // =========================
+                // COUNTS
+                // =========================
+                PendingOrders = s.Orders.Count(o => o.Status == OrderStatus.Pending),
+
+                PaidOrders = s.Orders.Count(o => o.Status == OrderStatus.Paid),
+
+                PreparingOrders = s.Orders.Count(o => o.Status == OrderStatus.Preparing),
+
+                ReadyOrders = s.Orders.Count(o => o.Status == OrderStatus.Ready),
+
+                AssignedOrders = s.Orders.Count(o => o.Status == OrderStatus.Assigned),
+
+                PickedOrders = s.Orders.Count(o => o.Status == OrderStatus.Picked),
+
+                DeliveredOrders = s.Orders.Count(o => o.Status == OrderStatus.Delivered),
+
+                CancelledOrders = s.Orders.Count(o => o.Status == OrderStatus.Cancelled),
+
+                // =========================
+                // TOTAL
+                // =========================
+                TotalOrders = s.Orders.Count()
+            })
             .ToListAsync();
 
-        return stores.Select(s => new
-        {
-            StoreId = s.Id,
-            StoreName = s.Name,
-            TotalRevenue = s.Orders
-                .Where(o => o.Status == OrderStatus.Accepted || o.Status == OrderStatus.Delivered)
-                .Sum(o => o.FinalPrice),
-            PendingOrders = s.Orders.Count(o => o.Status == OrderStatus.Pending),
-            DeliveredOrders = s.Orders.Count(o => o.Status == OrderStatus.Delivered),
-            RejectedOrders = s.Orders.Count(o => o.Status == OrderStatus.Rejected),
-            TotalOrders = s.Orders.Count
-        }).ToList();
+        return result;
     }
 }

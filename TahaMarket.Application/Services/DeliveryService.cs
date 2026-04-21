@@ -13,6 +13,7 @@ public class DeliveryService
     private readonly FileUrlService _fileUrl;
     private readonly DistanceService _distance;
     private readonly DeliveryPricingService _pricing;
+    private readonly PaymentService _payment;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public DeliveryService(
@@ -20,12 +21,14 @@ public class DeliveryService
         FileUrlService fileUrl,
         DistanceService distance,
         DeliveryPricingService pricing,
+        PaymentService payment,
         IHttpContextAccessor httpContextAccessor)
     {
         _context = context;
         _fileUrl = fileUrl;
         _distance = distance;
         _pricing = pricing;
+        _payment = payment;
         _httpContextAccessor = httpContextAccessor;
     }
 
@@ -61,8 +64,6 @@ public class DeliveryService
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             ImageUrl = "/images/deliveries/default.png",
             Balance = 0,
-            RefreshToken = null,
-            RefreshTokenExpiry = null,
             VehicleType = request.VehicleType,
             IsAvailable = true,
             IsOnline = false
@@ -84,24 +85,24 @@ public class DeliveryService
         };
     }
 
+
     // =========================
-    // ASSIGN ORDER (ADMIN OR STORE)
+    // ASSIGN ORDER (AUTO)
     // =========================
-    public async Task AssignOrder(
-     Guid orderId,
-     Guid deliveryId,
-     AssignedByType assignedBy,
-     decimal? manualFee = null)
+    public async Task AssignOrder(Guid orderId, Guid deliveryId)
     {
         // =========================
-        // VALIDATION
+        // GET USER TYPE FROM TOKEN
         // =========================
-        if (assignedBy != AssignedByType.Admin &&
-            assignedBy != AssignedByType.Store)
-        {
-            throw new Exception("Not allowed to assign delivery");
-        }
+        var role = _httpContextAccessor.HttpContext?
+            .User.FindFirst(ClaimTypes.Role)?.Value;
 
+        if (role != "Admin" && role != "Store")
+            throw new Exception("Not allowed to assign delivery");
+
+        // =========================
+        // GET ORDER
+        // =========================
         var order = await _context.Orders
             .Include(o => o.Store)
             .Include(o => o.UserAddress)
@@ -110,11 +111,24 @@ public class DeliveryService
         if (order == null)
             throw new Exception("Order not found");
 
+        // must be payed
+        if (order.PaymentStatus != PaymentStatus.Paid)
+            throw new Exception("Order must be paid before delivery");
+
+        // =========================
+        // GET DELIVERY
+        // =========================
         var delivery = await _context.Deliveries.FindAsync(deliveryId);
 
         if (delivery == null)
             throw new Exception("Delivery not found");
 
+        if (!delivery.IsAvailable)
+            throw new Exception("Delivery not available");
+
+        // =========================
+        // CHECK ASSIGNED
+        // =========================
         var alreadyAssigned = await _context.DeliveryOrders
             .AnyAsync(d => d.OrderId == orderId);
 
@@ -122,7 +136,7 @@ public class DeliveryService
             throw new Exception("Order already assigned");
 
         // =========================
-        // CALCULATE DISTANCE
+        // CALCULATE DISTANCE + FEE
         // =========================
         var distanceKm = _distance.CalculateDistanceKm(
             order.Store.Latitude,
@@ -131,16 +145,11 @@ public class DeliveryService
             order.UserAddress.Longitude
         );
 
-        // =========================
-        // AUTO FEE (FIXED )
-        // =========================
-        var autoFee = await _pricing.CalculateFee(distanceKm);
+        var finalFee = await _pricing.CalculateFee(distanceKm);
 
         // =========================
-        // FINAL FEE
+        // CREATE DELIVERY ORDER
         // =========================
-        var finalFee = manualFee ?? autoFee;
-
         var deliveryOrder = new DeliveryOrder
         {
             OrderId = orderId,
@@ -150,10 +159,17 @@ public class DeliveryService
         };
 
         _context.DeliveryOrders.Add(deliveryOrder);
+
+        // =========================
+        // UPDATE ORDER
+        // =========================
+        order.Status = OrderStatus.Assigned;
+
         await _context.SaveChangesAsync();
     }
+
     // =========================
-    // ACCEPT ORDER (DELIVERY)
+    // ACCEPT ORDER
     // =========================
     public async Task AcceptOrder(Guid orderId)
     {
@@ -176,6 +192,8 @@ public class DeliveryService
         await _context.SaveChangesAsync();
     }
 
+
+
     // =========================
     // DELIVER ORDER
     // =========================
@@ -185,6 +203,7 @@ public class DeliveryService
 
         var deliveryOrder = await _context.DeliveryOrders
             .Include(d => d.Delivery)
+            .Include(d => d.Order)
             .FirstOrDefaultAsync(d =>
                 d.OrderId == orderId &&
                 d.DeliveryId == deliveryId);
@@ -198,10 +217,16 @@ public class DeliveryService
         deliveryOrder.Status = DeliveryStatus.Delivered;
         deliveryOrder.DeliveredAt = DateTime.UtcNow;
 
+        //  update order
+        deliveryOrder.Order.Status = OrderStatus.Delivered;
+        deliveryOrder.Order.DeliveredAt = DateTime.UtcNow;
+
+        // delivery earns money
         deliveryOrder.Delivery.Balance += deliveryOrder.DeliveryFee;
 
         await _context.SaveChangesAsync();
     }
+
 
     // =========================
     // GET MY ORDERS (DELIVERY)
@@ -211,6 +236,7 @@ public class DeliveryService
         var deliveryId = GetDeliveryIdFromToken();
 
         return await _context.DeliveryOrders
+            .AsNoTracking()
             .Include(d => d.Order)
             .ThenInclude(o => o.Store)
             .Where(d => d.DeliveryId == deliveryId)
