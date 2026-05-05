@@ -141,6 +141,146 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.ToTable("Stores");
                 });
 
+            modelBuilder.Entity("TahaMarket.Domain.Entities.AddOnGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("StoreId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("StoreId");
+
+                    b.ToTable("AddOnGroups");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.AddOnOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AddOnGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("Price")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AddOnGroupId");
+
+                    b.ToTable("AddOnOptions");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("StoreId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StoreId");
+
+                    b.HasIndex("UserId", "StoreId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("VariantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("CartItems");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.CartItemAddOn", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AddOnOptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CartItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("Price")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartItemId");
+
+                    b.ToTable("CartItemAddOns");
+                });
+
             modelBuilder.Entity("TahaMarket.Domain.Entities.Delivery", b =>
                 {
                     b.Property<Guid>("Id")
@@ -160,12 +300,6 @@ namespace TahaMarket.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<bool>("IsAvailable")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsOnline")
-                        .HasColumnType("bit");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -183,6 +317,9 @@ namespace TahaMarket.Infrastructure.Migrations
 
                     b.Property<DateTime?>("RefreshTokenExpiry")
                         .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.Property<string>("VehicleType")
                         .IsRequired()
@@ -290,6 +427,32 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.HasIndex("DeliveryId");
 
                     b.ToTable("DeliveryTransactions");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.ExternalDeliveryRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsAssigned")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("StoreId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StoreId");
+
+                    b.ToTable("ExternalDeliveryRequests");
                 });
 
             modelBuilder.Entity("TahaMarket.Domain.Entities.Favorite", b =>
@@ -413,6 +576,9 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Property<decimal>("FinalPrice")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("MerchantOrderId")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("Note")
                         .HasColumnType("nvarchar(max)");
 
@@ -468,6 +634,15 @@ namespace TahaMarket.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal>("BasePrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Discount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("DiscountedPrice")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Note")
                         .HasColumnType("nvarchar(max)");
 
@@ -483,6 +658,10 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
+                    b.Property<string>("VariantName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("OrderId");
@@ -490,6 +669,29 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("OrderItems");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.OrderItemAddOn", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("OrderItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Price")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderItemId");
+
+                    b.ToTable("OrderItemAddOns");
                 });
 
             modelBuilder.Entity("TahaMarket.Domain.Entities.OtpCode", b =>
@@ -525,6 +727,9 @@ namespace TahaMarket.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("IsStockTracked")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -535,7 +740,7 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<int>("StockQuantity")
+                    b.Property<int?>("StockQuantity")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
@@ -721,6 +926,81 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Navigation("StoreSection");
                 });
 
+            modelBuilder.Entity("TahaMarket.Domain.Entities.AddOnGroup", b =>
+                {
+                    b.HasOne("Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId");
+
+                    b.HasOne("Store", "Store")
+                        .WithMany()
+                        .HasForeignKey("StoreId");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Store");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.AddOnOption", b =>
+                {
+                    b.HasOne("TahaMarket.Domain.Entities.AddOnGroup", "AddOnGroup")
+                        .WithMany("Options")
+                        .HasForeignKey("AddOnGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AddOnGroup");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Store", "Store")
+                        .WithMany()
+                        .HasForeignKey("StoreId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Store");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("TahaMarket.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("TahaMarket.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany()
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.CartItemAddOn", b =>
+                {
+                    b.HasOne("TahaMarket.Domain.Entities.CartItem", "CartItem")
+                        .WithMany("AddOns")
+                        .HasForeignKey("CartItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CartItem");
+                });
+
             modelBuilder.Entity("TahaMarket.Domain.Entities.DeliveryOrder", b =>
                 {
                     b.HasOne("TahaMarket.Domain.Entities.Delivery", "Delivery")
@@ -738,6 +1018,17 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Navigation("Delivery");
 
                     b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.ExternalDeliveryRequest", b =>
+                {
+                    b.HasOne("Store", "Store")
+                        .WithMany()
+                        .HasForeignKey("StoreId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Store");
                 });
 
             modelBuilder.Entity("TahaMarket.Domain.Entities.Favorite", b =>
@@ -817,6 +1108,17 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("TahaMarket.Domain.Entities.OrderItemAddOn", b =>
+                {
+                    b.HasOne("TahaMarket.Domain.Entities.OrderItem", "OrderItem")
+                        .WithMany("AddOns")
+                        .HasForeignKey("OrderItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OrderItem");
+                });
+
             modelBuilder.Entity("TahaMarket.Domain.Entities.ProductVariant", b =>
                 {
                     b.HasOne("Product", "Product")
@@ -869,6 +1171,21 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Navigation("Products");
                 });
 
+            modelBuilder.Entity("TahaMarket.Domain.Entities.AddOnGroup", b =>
+                {
+                    b.Navigation("Options");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.CartItem", b =>
+                {
+                    b.Navigation("AddOns");
+                });
+
             modelBuilder.Entity("TahaMarket.Domain.Entities.Delivery", b =>
                 {
                     b.Navigation("DeliveryOrders");
@@ -879,6 +1196,11 @@ namespace TahaMarket.Infrastructure.Migrations
                     b.Navigation("DeliveryOrders");
 
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("TahaMarket.Domain.Entities.OrderItem", b =>
+                {
+                    b.Navigation("AddOns");
                 });
 
             modelBuilder.Entity("TahaMarket.Domain.Entities.StoreSection", b =>

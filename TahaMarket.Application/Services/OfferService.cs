@@ -163,6 +163,31 @@ public class OfferService
         await _context.SaveChangesAsync();
     }
 
+
+    public async Task<decimal> CalculateDiscount(Guid productId, Guid categoryId, decimal price)
+    {
+        var now = DateTime.UtcNow;
+
+        var offer = await _context.Offers
+            .AsNoTracking()
+            .Where(o =>
+                o.IsActive &&
+                o.StartDate <= now &&
+                o.EndDate >= now &&
+                (
+                    (o.TargetType == OfferTargetType.Product && o.TargetId == productId) ||
+                    (o.TargetType == OfferTargetType.Category && o.TargetId == categoryId)
+                )
+            )
+            .OrderByDescending(o => o.DiscountPercentage)
+            .FirstOrDefaultAsync();
+
+        if (offer == null)
+            return 0;
+
+        return Math.Round(price * (offer.DiscountPercentage / 100m), 2);
+    }
+
     // =========================
     // MAP
     // =========================

@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
@@ -12,13 +13,14 @@ public class AuthService
     private readonly JwtService _jwt;
     private readonly OtpService _otpService;
     private readonly FileUrlService _fileUrl;
-
-    public AuthService(ApplicationDbContext context, JwtService jwt, OtpService otpService , FileUrlService fileUrl)
+    private readonly IConfiguration _config;
+    public AuthService(ApplicationDbContext context, JwtService jwt, OtpService otpService , FileUrlService fileUrl, IConfiguration config)
     {
         _context = context;
         _jwt = jwt;
         _otpService = otpService;
         _fileUrl = fileUrl;
+        _config = config;
     }
 
     // REGISTER
@@ -236,7 +238,7 @@ public class AuthService
                     message = "Invalid phone number or password"
                 };
             }
-
+            delivery.Status = DeliveryStatus.Online;
             var tokens = await GenerateDeliveryTokens(delivery);
 
             return new
@@ -250,8 +252,7 @@ public class AuthService
                     delivery.Name,
                     delivery.PhoneNumber,
                     delivery.VehicleType,
-                    delivery.IsAvailable,
-                    delivery.IsOnline,
+                    delivery.Status,
                     delivery.CurrentLatitude,
                     delivery.CurrentLongitude,
                     ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
@@ -343,55 +344,7 @@ public class AuthService
         return true;
     }
 
-    // TOKENS
-    private async Task<AuthResponse> GenerateUserTokens(User user)
-    {
-        var token = _jwt.GenerateToken(user.Id.ToString(), user.UserType.ToString(), user.PhoneNumber);
-
-        var refresh = Guid.NewGuid().ToString();
-
-        user.RefreshToken = refresh;
-        user.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
-
-        await _context.SaveChangesAsync();
-
-        return new AuthResponse
-        {
-            AccessToken = token,
-            RefreshToken = refresh,
-            Expiration = DateTime.UtcNow.AddMinutes(60)
-        };
-    }
-
-    private async Task<AuthResponse> GenerateStoreTokens(Store store)
-    {
-        var token = _jwt.GenerateToken(store.Id.ToString(), "Store", store.PhoneNumber);
-
-        var refresh = Guid.NewGuid().ToString();
-
-        store.RefreshToken = refresh;
-        store.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
-
-        await _context.SaveChangesAsync();
-
-        return new AuthResponse
-        {
-            AccessToken = token,
-            RefreshToken = refresh,
-            Expiration = DateTime.UtcNow.AddMinutes(60)
-        };
-    }
-
-
-    private async Task<AuthResponse> GenerateDeliveryTokens(Delivery delivery)
-    {
-        var token = _jwt.GenerateToken(delivery.Id.ToString(), "Delivery", delivery.PhoneNumber);
-        var refresh = Guid.NewGuid().ToString();
-        delivery.RefreshToken = refresh;
-        delivery.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
-        await _context.SaveChangesAsync();
-        return new AuthResponse { AccessToken = token, RefreshToken = refresh, Expiration = DateTime.UtcNow.AddMinutes(60) };
-    }
+   
 
     // =========================
     // REFRESH TOKEN
@@ -405,7 +358,7 @@ public class AuthService
             var tokens = await GenerateUserTokens(user);
             return new
             {
-                type = "User",
+                type = user.UserType.ToString(),
                 user = new
                 {
                     user.Id,
@@ -455,8 +408,7 @@ public class AuthService
                     delivery.Name,
                     delivery.PhoneNumber,
                     delivery.VehicleType,
-                    delivery.IsAvailable,
-                    delivery.IsOnline,
+                    delivery.Status,
                     delivery.CurrentLatitude,
                     delivery.CurrentLongitude,
                     ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
@@ -471,20 +423,103 @@ public class AuthService
         return null;
     }
 
+
+
+    // ======================= TOKENS ==========================
+
+    private async Task<AuthResponse> GenerateUserTokens(User user)
+    {
+        var accessToken = _jwt.GenerateToken(
+            user.Id.ToString(),
+            user.UserType.ToString(),
+            user.PhoneNumber
+        );
+
+        //  ALWAYS GENERATE NEW REFRESH TOKEN (LOGIN ONLY)
+        user.RefreshToken = Guid.NewGuid().ToString();
+
+        var refreshDays = int.Parse(_config["Jwt:RefreshTokenDurationInDays"] ?? "30");
+        user.RefreshTokenExpiry = DateTime.UtcNow.AddDays(refreshDays);
+
+        var accessMinutes = int.Parse(_config["Jwt:DurationInMinutes"] ?? "60");
+
+        await _context.SaveChangesAsync();
+
+        return new AuthResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = user.RefreshToken,
+            Expiration = DateTime.UtcNow.AddMinutes(accessMinutes)
+        };
+    }
+
+
+    private async Task<AuthResponse> GenerateStoreTokens(Store store)
+    {
+        var accessToken = _jwt.GenerateToken(
+            store.Id.ToString(),
+            "Store",
+            store.PhoneNumber
+        );
+
+        //  NEW REFRESH TOKEN
+        store.RefreshToken = Guid.NewGuid().ToString();
+
+        var refreshDays = int.Parse(_config["Jwt:RefreshTokenDurationInDays"] ?? "30");
+        store.RefreshTokenExpiry = DateTime.UtcNow.AddDays(refreshDays);
+
+        var accessMinutes = int.Parse(_config["Jwt:DurationInMinutes"] ?? "60");
+
+        await _context.SaveChangesAsync();
+
+        return new AuthResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = store.RefreshToken,
+            Expiration = DateTime.UtcNow.AddMinutes(accessMinutes)
+        };
+    }
+
+    private async Task<AuthResponse> GenerateDeliveryTokens(Delivery delivery)
+    {
+        var accessToken = _jwt.GenerateToken(
+            delivery.Id.ToString(),
+            "Delivery",
+            delivery.PhoneNumber
+        );
+
+        // NEW REFRESH TOKEN
+        delivery.RefreshToken = Guid.NewGuid().ToString();
+
+        var refreshDays = int.Parse(_config["Jwt:RefreshTokenDurationInDays"] ?? "30");
+        delivery.RefreshTokenExpiry = DateTime.UtcNow.AddDays(refreshDays);
+
+        var accessMinutes = int.Parse(_config["Jwt:DurationInMinutes"] ?? "60");
+
+        await _context.SaveChangesAsync();
+
+        return new AuthResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = delivery.RefreshToken,
+            Expiration = DateTime.UtcNow.AddMinutes(accessMinutes)
+        };
+    }
+
     // =========================
     // LOGOUT
     // =========================
-    public async Task Logout(Guid userId)
-    {
-        var user = await _context.Users.FindAsync(userId);
+    //public async Task Logout(Guid userId)
+    //{
+    //    var user = await _context.Users.FindAsync(userId);
 
-        if (user == null)
-            throw new Exception("User not found");
+    //    if (user == null)
+    //        throw new Exception("User not found");
 
-        user.RefreshToken = null;
-        user.RefreshTokenExpiry = null;
+    //    user.RefreshToken = null;
+    //    user.RefreshTokenExpiry = null;
 
-        await _context.SaveChangesAsync();
-    }
+    //    await _context.SaveChangesAsync();
+    //}
 
 }

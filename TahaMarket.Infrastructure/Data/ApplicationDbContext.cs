@@ -29,6 +29,14 @@ namespace TahaMarket.Infrastructure.Data
         public DbSet<DeliveryTransaction> DeliveryTransactions { get; set; }
         public DbSet<DeliveryPricing> DeliveryPricings { get; set; }
         public DbSet<Notification> Notifications { get; set; }
+        public DbSet<Cart> Carts { get; set; }
+        public DbSet<CartItem> CartItems { get; set; }
+        public DbSet<ExternalDeliveryRequest> ExternalDeliveryRequests { get; set; }
+
+        public DbSet<AddOnGroup> AddOnGroups { get; set; }
+        public DbSet<AddOnOption> AddOnOptions { get; set; }
+        public DbSet<OrderItemAddOn> OrderItemAddOns { get; set; }
+        public DbSet<CartItemAddOn> CartItemAddOns { get; set; }    
 
         // ------------------- Model Creating -------------------
 
@@ -184,6 +192,53 @@ namespace TahaMarket.Infrastructure.Data
             modelBuilder.Entity<User>()
                 .Property(u => u.UserType)
                 .HasConversion<int>();
+
+            // =========================================================
+            // CART ITEM RELATIONS
+            // =========================================================
+
+            modelBuilder.Entity<CartItem>()
+                .HasOne(ci => ci.Product)
+                .WithMany()
+                .HasForeignKey(ci => ci.ProductId)
+                .OnDelete(DeleteBehavior.NoAction); 
+
+            modelBuilder.Entity<CartItem>()
+                .HasOne(ci => ci.Variant)
+                .WithMany()
+                .HasForeignKey(ci => ci.VariantId)
+                .OnDelete(DeleteBehavior.NoAction); 
+
+            modelBuilder.Entity<CartItem>()
+                .HasOne(ci => ci.Cart)
+                .WithMany(c => c.Items)
+                .HasForeignKey(ci => ci.CartId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // =========================
+            // CART
+            // =========================
+            modelBuilder.Entity<Cart>()
+                .HasMany(c => c.Items)
+                .WithOne(i => i.Cart)
+                .HasForeignKey(i => i.CartId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // =========================
+            // CART ITEM
+            // =========================
+            modelBuilder.Entity<CartItem>()
+                .HasMany(i => i.AddOns)
+                .WithOne(a => a.CartItem)
+                .HasForeignKey(a => a.CartItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // =========================
+            // PREVENT DUPLICATE CART
+            // =========================
+            modelBuilder.Entity<Cart>()
+                .HasIndex(c => new { c.UserId, c.StoreId })
+                .IsUnique();
 
             // ------------------- Admin Seed -------------------
             //modelBuilder.Entity<User>().HasData(new User

@@ -30,26 +30,33 @@ public class DeliveryController : ControllerBase
     // =========================
     [Authorize(Roles = "Admin,Store")]
     [HttpPost("assign")]
-    public async Task<IActionResult> Assign(Guid orderId, Guid deliveryId)
+    public async Task<IActionResult> Assign([FromBody] AssignOrderRequest request)
     {
-        await _service.AssignOrder(orderId, deliveryId);
-        return Ok("Assigned successfully");
+        await _service.AssignOrder(request.OrderId, request.DeliveryId);
+
+        return Ok(new
+        {
+            message = "Order assigned successfully"
+        });
     }
 
+
     // =========================
-    // ACCEPT ORDER (DELIVERY)
+    // PICK ORDER (DELIVERY)
     // =========================
     [Authorize(Roles = "Delivery")]
-    [HttpPost("accept/{orderId}")]
-    public async Task<IActionResult> Accept(Guid orderId)
+    [HttpPost("pick/{orderId}")]
+    public async Task<IActionResult> Pick(Guid orderId)
     {
-        await _service.AcceptOrder(orderId);
+        await _service.PickOrder(orderId);
 
         return Ok(new
         {
             message = "Order picked successfully"
         });
     }
+
+    
 
     // =========================
     // DELIVER ORDER (DELIVERY)

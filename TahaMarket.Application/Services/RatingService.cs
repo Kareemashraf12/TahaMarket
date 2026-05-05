@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using TahaMarket.Application.DTOs;
+using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
 using TahaMarket.Domain.Enums;
 using TahaMarket.Infrastructure.Data;
@@ -9,11 +10,13 @@ public class RatingService
 {
     private readonly ApplicationDbContext _context;
     private readonly IMemoryCache _cache;
+    private readonly FileUrlService _fileUrlService;
 
-    public RatingService(ApplicationDbContext context, IMemoryCache cache)
+    public RatingService(ApplicationDbContext context, IMemoryCache cache ,FileUrlService fileUrlService)
     {
         _context = context;
         _cache = cache;
+        _fileUrlService = fileUrlService;
     }
 
     // =========================
@@ -107,7 +110,7 @@ public class RatingService
             .Select(r => new RatingCommentDto
             {
                 UserName = r.User.Name,
-                UserImage = r.User.ImageUrl,
+                UserImage = _fileUrlService.GetFullUrl(r.User.ImageUrl),
                 Value = r.Value,
                 Comment = r.Comment,
                 CreatedAt = r.CreatedAt

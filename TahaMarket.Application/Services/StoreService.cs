@@ -91,9 +91,9 @@ namespace TahaMarket.Application.Services
                 _context.Stores.Add(store);
                 await _context.SaveChangesAsync();
             }
-            catch (DbUpdateException)
+            catch (DbUpdateException ex)
             {
-                throw new Exception("Error while saving store. Please check data integrity.");
+                throw new Exception(ex.InnerException?.Message ?? ex.Message);
             }
 
             // =========================

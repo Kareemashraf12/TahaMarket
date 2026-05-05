@@ -11,7 +11,7 @@ namespace TahaMarket.Domain.Entities
 
             public Guid UserId { get; set; }
             public virtual User User { get; set; }
-
+            
             public Guid StoreId { get; set; }
             public virtual Store Store { get; set; }
 
@@ -51,6 +51,7 @@ namespace TahaMarket.Domain.Entities
             public PaymentMethod PaymentMethod { get; set; } // COD / Online
             public PaymentStatus PaymentStatus { get; set; } // Pending / Paid / Failed
             public string? PaymentTransactionId { get; set; }
-        }
+            public string? MerchantOrderId { get; set; }
+    }
     
 }

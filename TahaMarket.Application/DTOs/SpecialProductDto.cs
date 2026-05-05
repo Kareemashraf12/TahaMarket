@@ -16,7 +16,11 @@ namespace TahaMarket.Application.DTOs
         public string ImageUrl { get; set; }
         public Guid StoreId { get; set; }
         public Guid CategoryId { get; set; }
+        public decimal OldPrice { get; set; }
+        public bool HasDiscount { get; set; }
 
+        public decimal DiscountPercentage { get; set; }
+        public decimal FinalPrice { get; set; }
         public double AverageRating { get; set; }
     }
 }

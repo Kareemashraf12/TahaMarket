@@ -181,16 +181,16 @@ public class AuthController : ControllerBase
     // =========================
     // LOGOUT
     // =========================
-    [Authorize]
-    [HttpPost("logout")]
-    public async Task<IActionResult> Logout()
-    {
-        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+    //[Authorize]
+    //[HttpPost("logout")]
+    //public async Task<IActionResult> Logout()
+    //{
+    //    var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
 
-        await _auth.Logout(userId);
+    //    await _auth.Logout(userId);
 
-        return Ok(new { message = "Logged out successfully" });
-    }
+    //    return Ok(new { message = "Logged out successfully" });
+    //}
 
 
 

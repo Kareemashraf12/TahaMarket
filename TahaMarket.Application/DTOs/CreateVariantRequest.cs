@@ -8,7 +8,10 @@ namespace TahaMarket.Application.DTOs
 {
     public class CreateVariantRequest
     {
+        public Guid Id { get; set; }
         public string Size { get; set; } // Small / Large
         public decimal Price { get; set; }
+        public bool IsStockTracked { get; set; } = true;
+        public int? StockQuantity { get; set; }
     }
 }

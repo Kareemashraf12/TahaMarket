@@ -1,47 +1,55 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using TahaMarket.Application.DTOs;
 
 [ApiController]
 [Route("api/payments")]
 public class PaymentController : ControllerBase
 {
-    private readonly PaymentService _service;
+    private readonly PaymentService _paymentService;
 
-    public PaymentController(PaymentService service)
+    public PaymentController(PaymentService paymentService)
     {
-        _service = service;
+        _paymentService = paymentService;
     }
 
     // =========================
-    // PAY ORDER
+    // CREATE PAYMENT SESSION
     // =========================
-    [HttpPost("pay")]
-    public async Task<IActionResult> Pay([FromBody] PaymentRequest request)
+    [HttpPost("create/{orderId}")]
+    public async Task<IActionResult> Create(Guid orderId)
     {
-        if (request == null)
-            return BadRequest("Invalid request");
-
         try
         {
-            var result = await _service.ProcessPayment(request);
-
+            var result = await _paymentService.CreateOnlinePayment(orderId);
             return Ok(result);
         }
         catch (Exception ex)
         {
             return BadRequest(new
             {
-                Message = ex.Message
+                success = false,
+                message = ex.Message
             });
         }
     }
+
     // =========================
     // GET STATUS
     // =========================
     [HttpGet("{orderId}")]
     public async Task<IActionResult> GetStatus(Guid orderId)
     {
-        var result = await _service.GetStatus(orderId);
-        return Ok(result);
+        try
+        {
+            var result = await _paymentService.GetStatus(orderId);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return NotFound(new
+            {
+                success = false,
+                message = ex.Message
+            });
+        }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using TahaMarket.Application.DTOs;
 
 [ApiController]
@@ -49,47 +50,93 @@ public class ProductController : ControllerBase
     // =========================
     // UPDATE PRODUCT (Admin Only)
     // =========================
-    [Authorize(Roles = "Admin")]
-    [HttpPut("Update/{id}")]
-    public async Task<IActionResult> Update(Guid id, [FromForm] UpdateProductRequest request)
+    [Authorize]
+    [HttpPut("Update")]
+    public async Task<IActionResult> Update([FromForm] UpdateProductRequest request)
     {
-        var storeId = Guid.Parse(User.FindFirst("StoreId").Value);
+        var role = User.FindFirst(ClaimTypes.Role)?.Value;
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
-        await _service.Update(id, storeId, request);
+        if (string.IsNullOrEmpty(role) || userIdClaim == null)
+            return Unauthorized("Invalid token");
 
-        return Ok(new
+        var userId = Guid.Parse(userIdClaim.Value);
+
+        // =========================
+        // ADMIN
+        // =========================
+        if (role == "Admin")
         {
-            message = "Product updated successfully"
-        });
-    }
+            if (request.StoreId == null)
+                return BadRequest("StoreId required for admin");
 
+            await _service.Update(request.ProductId, request.StoreId.Value, request);
+        }
+
+        // =========================
+        // STORE OWNER
+        // =========================
+        else if (role == "Store")
+        {
+            
+            await _service.Update(request.ProductId, userId, request);
+        }
+
+        
+        else
+        {
+            return Forbid();
+        }
+
+        return Ok(new { message = "Updated successfully" });
+    }
     // =========================
     // DELETE PRODUCT (Admin Only)
     // =========================
-    [Authorize(Roles = "Admin")]
+    [Authorize]
     [HttpDelete("Delete/{id}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var storeId = Guid.Parse(User.FindFirst("StoreId").Value);
+        var role = User.FindFirst(ClaimTypes.Role)?.Value;
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
-        await _service.Delete(id, storeId);
+        if (string.IsNullOrEmpty(role) || userIdClaim == null)
+            return Unauthorized();
 
-        return Ok(new
+        Guid? storeId = null;
+
+        // =========================
+        // STORE
+        // =========================
+        if (role == "Store")
         {
-            message = "Product deleted successfully"
-        });
+            storeId = Guid.Parse(userIdClaim.Value);
+        }
+
+        // =========================
+        // ADMIN → storeId = null
+        // =========================
+
+        await _service.Delete(id, storeId, role);
+
+        return Ok(new { message = "Deleted successfully" });
     }
 
+
+    // =========================
+    // GET PRODUCTS BY CATEGORY (PUBLIC)
+    // =========================
     [AllowAnonymous]
     [HttpGet("by-category/{categoryId}")]
-    public async Task<IActionResult> GetByCategory(
-    Guid categoryId,
-    [FromQuery] PaginationRequest request)
+    public async Task<IActionResult> GetByCategory(Guid categoryId,[FromQuery] PaginationRequest request)
     {
         var result = await _service.GetByCategory(categoryId, request);
         return Ok(result);
     }
 
+    // =========================
+    // GET TOP SELLING PRODUCTS (PUBLIC)
+    // =========================
     [AllowAnonymous]
     [HttpGet("top-selling")]
     public async Task<IActionResult> GetTopSellingProducts([FromQuery] int take = 10)
@@ -98,12 +145,35 @@ public class ProductController : ControllerBase
         return Ok(result);
     }
 
-    //  Get Hot Offers Products
+    // =========================
+    // GET HOT OFFERS (PUBLIC)
+    // =========================
     [AllowAnonymous]
     [HttpGet("hot-offers")]
     public async Task<IActionResult> GetHotOffers()
     {
         var result = await _service.GetHotOffers();
+        return Ok(result);
+    }
+
+
+    // =========================
+    // DAILY OFFERS
+    // =========================
+    [HttpGet("daily-offers")]
+    public async Task<IActionResult> GetDailyOffers([FromQuery] PaginationRequest request)
+    {
+        if (request.Page <= 0)
+            request.Page = 1;
+
+        if (request.PageSize <= 0)
+            request.PageSize = 10;
+
+        if (request.PageSize > 50)
+            request.PageSize = 50;
+
+        var result = await _service.GetDailyOffers(request);
+
         return Ok(result);
     }
 }

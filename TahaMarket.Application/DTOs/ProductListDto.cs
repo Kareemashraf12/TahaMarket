@@ -18,6 +18,8 @@ namespace TahaMarket.Application.DTOs
 
         public decimal FinalPrice { get; set; }
 
+        public bool HasStock { get; set; }
+        public int? StockQuantity { get; set; }
         public bool HasDiscount { get; set; }
 
         public decimal DiscountPercentage { get; set; }
@@ -25,5 +27,6 @@ namespace TahaMarket.Application.DTOs
         public double AverageRating { get; set; }
 
         public int RatingsCount { get; set; }
+        public List<ProductVariantResponse> Variants { get; set; }
     }
 }

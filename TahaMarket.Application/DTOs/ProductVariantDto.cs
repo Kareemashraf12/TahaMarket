@@ -13,5 +13,7 @@ namespace TahaMarket.Application.DTOs
         public string Name { get; set; } // Small / Medium / Large
 
         public decimal Price { get; set; }
+        public bool IsStockTracked { get; set; }
+        public int? StockQuantity { get; set; }
     }
 }

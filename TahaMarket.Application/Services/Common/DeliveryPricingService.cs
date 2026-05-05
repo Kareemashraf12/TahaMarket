@@ -10,15 +10,18 @@ namespace TahaMarket.Application.Services.Common
     {
         private readonly ApplicationDbContext _context;
         private readonly IMemoryCache _cache;
+        private readonly DistanceService _distance;
 
         private const string CACHE_KEY = "delivery_pricing_latest";
 
         public DeliveryPricingService(
             ApplicationDbContext context,
-            IMemoryCache cache)
+            IMemoryCache cache,
+            DistanceService distance)
         {
             _context = context;
             _cache = cache;
+            _distance = distance;
         }
 
         // =========================
@@ -76,7 +79,7 @@ namespace TahaMarket.Application.Services.Common
         // =========================
         private async Task<DeliveryPricing> GetLatestPricing()
         {
-            if (_cache.TryGetValue(CACHE_KEY, out DeliveryPricing cached))
+            if (_cache.TryGetValue(CACHE_KEY, out DeliveryPricing? cached) && cached != null)
                 return cached;
 
             var pricing = await _context.DeliveryPricings
@@ -85,7 +88,7 @@ namespace TahaMarket.Application.Services.Common
                 .FirstOrDefaultAsync();
 
             if (pricing == null)
-                throw new Exception("Delivery pricing is not configured");
+                throw new Exception("Delivery pricing is not configured. Please setup pricing first.");
 
             var cacheOptions = new MemoryCacheEntryOptions()
                 .SetSlidingExpiration(TimeSpan.FromMinutes(3))
@@ -95,7 +98,6 @@ namespace TahaMarket.Application.Services.Common
 
             return pricing;
         }
-
         // =========================
         // CALCULATE DELIVERY FEE
         // =========================
@@ -104,15 +106,15 @@ namespace TahaMarket.Application.Services.Common
             if (distanceKm < 0)
                 throw new Exception("Invalid distance");
 
+            if (distanceKm > 42)
+                throw new Exception("Distance too large for delivery");
+
             var pricing = await GetLatestPricing();
 
             var fee = pricing.BaseFee + ((decimal)distanceKm * pricing.PricePerKm);
 
-            if (fee < pricing.MinFee)
-                fee = pricing.MinFee;
-
-            if (fee > pricing.MaxFee)
-                fee = pricing.MaxFee;
+            fee = Math.Max(fee, pricing.MinFee);
+            fee = Math.Min(fee, pricing.MaxFee);
 
             return Math.Round(fee, 2);
         }
@@ -131,6 +133,51 @@ namespace TahaMarket.Application.Services.Common
                 MinFee = pricing.MinFee,
                 MaxFee = pricing.MaxFee,
                 CreatedAt = pricing.CreatedAt
+            };
+        }
+
+
+
+        // =========================
+        // CALCULATE DELIVERY COST (MAIN METHOD)
+        // =========================
+        public async Task<DeliveryCostDto> CalculateDeliveryCost(
+       double storeLat,
+       double storeLng,
+       double userLat,
+       double userLng,
+       decimal serviceFee = 0)
+        {
+            if (storeLat == 0 || storeLng == 0 || userLat == 0 || userLng == 0)
+                throw new Exception("Invalid coordinates");
+
+            var distanceKm = _distance.CalculateDistanceKm(
+                storeLat,
+                storeLng,
+                userLat,
+                userLng
+            );
+
+            distanceKm = Math.Round(distanceKm, 2);
+
+            var pricing = await GetLatestPricing();
+
+            var deliveryFee = pricing.BaseFee + ((decimal)distanceKm * pricing.PricePerKm);
+
+            deliveryFee = Math.Max(deliveryFee, pricing.MinFee);
+            deliveryFee = Math.Min(deliveryFee, pricing.MaxFee);
+
+            deliveryFee = Math.Round(deliveryFee, 2);
+
+            var totalDeliveryCost = deliveryFee + serviceFee;
+
+            return new DeliveryCostDto
+            {
+                DistanceKm = distanceKm,
+                BaseDeliveryFee = deliveryFee,
+                ServiceFee = serviceFee,
+                TotalDeliveryCost = totalDeliveryCost
+
             };
         }
     }

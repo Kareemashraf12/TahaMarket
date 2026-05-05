@@ -62,11 +62,14 @@ public class DeliveryService
             Name = request.Name,
             PhoneNumber = request.PhoneNumber,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+
             ImageUrl = "/images/deliveries/default.png",
+
             Balance = 0,
             VehicleType = request.VehicleType,
-            IsAvailable = true,
-            IsOnline = false
+
+            //  NEW STATE MODEL
+            Status = DeliveryStatus.Offline
         };
 
         _context.Deliveries.Add(delivery);
@@ -78,8 +81,7 @@ public class DeliveryService
             delivery.Name,
             delivery.PhoneNumber,
             delivery.VehicleType,
-            delivery.IsAvailable,
-            delivery.IsOnline,
+            Status = delivery.Status.ToString(),
             ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
             delivery.Balance
         };
@@ -91,142 +93,158 @@ public class DeliveryService
     // =========================
     public async Task AssignOrder(Guid orderId, Guid deliveryId)
     {
-        // =========================
-        // GET USER TYPE FROM TOKEN
-        // =========================
-        var role = _httpContextAccessor.HttpContext?
-            .User.FindFirst(ClaimTypes.Role)?.Value;
+        var strategy = _context.Database.CreateExecutionStrategy();
 
-        if (role != "Admin" && role != "Store")
-            throw new Exception("Not allowed to assign delivery");
-
-        // =========================
-        // GET ORDER
-        // =========================
-        var order = await _context.Orders
-            .Include(o => o.Store)
-            .Include(o => o.UserAddress)
-            .FirstOrDefaultAsync(o => o.Id == orderId);
-
-        if (order == null)
-            throw new Exception("Order not found");
-
-        // must be payed
-        if (order.PaymentStatus != PaymentStatus.Paid)
-            throw new Exception("Order must be paid before delivery");
-
-        // =========================
-        // GET DELIVERY
-        // =========================
-        var delivery = await _context.Deliveries.FindAsync(deliveryId);
-
-        if (delivery == null)
-            throw new Exception("Delivery not found");
-
-        if (!delivery.IsAvailable)
-            throw new Exception("Delivery not available");
-
-        // =========================
-        // CHECK ASSIGNED
-        // =========================
-        var alreadyAssigned = await _context.DeliveryOrders
-            .AnyAsync(d => d.OrderId == orderId);
-
-        if (alreadyAssigned)
-            throw new Exception("Order already assigned");
-
-        // =========================
-        // CALCULATE DISTANCE + FEE
-        // =========================
-        var distanceKm = _distance.CalculateDistanceKm(
-            order.Store.Latitude,
-            order.Store.Longitude,
-            order.UserAddress.Latitude,
-            order.UserAddress.Longitude
-        );
-
-        var finalFee = await _pricing.CalculateFee(distanceKm);
-
-        // =========================
-        // CREATE DELIVERY ORDER
-        // =========================
-        var deliveryOrder = new DeliveryOrder
+        await strategy.ExecuteAsync(async () =>
         {
-            OrderId = orderId,
-            DeliveryId = deliveryId,
-            DeliveryFee = finalFee,
-            Status = DeliveryStatus.Pending
-        };
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-        _context.DeliveryOrders.Add(deliveryOrder);
+            try
+            {
+                var role = _httpContextAccessor.HttpContext?
+                    .User.FindFirst(ClaimTypes.Role)?.Value;
 
-        // =========================
-        // UPDATE ORDER
-        // =========================
-        order.Status = OrderStatus.Assigned;
+                if (role != "Admin")
+                    throw new Exception("Not allowed to assign delivery");
 
-        await _context.SaveChangesAsync();
+                var order = await _context.Orders
+                    .Include(o => o.Store)
+                    .Include(o => o.UserAddress)
+                    .FirstOrDefaultAsync(o => o.Id == orderId);
+
+                if (order == null)
+                    throw new Exception("Order not found");
+
+                if (order.PaymentStatus != PaymentStatus.Paid)
+                    throw new Exception("Order must be paid");
+
+                if (order.Status == OrderStatus.Assigned)
+                    throw new Exception("Order already assigned");
+
+                var alreadyAssigned = await _context.DeliveryOrders
+                    .AnyAsync(d => d.OrderId == orderId);
+
+                if (alreadyAssigned)
+                    throw new Exception("Order already assigned");
+
+                var delivery = await _context.Deliveries
+                    .FirstOrDefaultAsync(d => d.Id == deliveryId);
+
+                if (delivery == null)
+                    throw new Exception("Delivery not found");
+
+                if (delivery.Status != DeliveryStatus.Online)
+                    throw new Exception("Delivery is not available");
+
+                var deliveryOrder = new DeliveryOrder
+                {
+                    OrderId = orderId,
+                    DeliveryId = deliveryId,
+                    Status = DeliveryOrderStatus.Pending,
+                    DeliveryFee = 0
+                };
+
+                _context.DeliveryOrders.Add(deliveryOrder);
+
+                order.Status = OrderStatus.Assigned;
+
+                delivery.Status = DeliveryStatus.Busy;
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        });
     }
-
     // =========================
-    // ACCEPT ORDER
+    // Picked ORDER
     // =========================
-    public async Task AcceptOrder(Guid orderId)
-    {
-        var deliveryId = GetDeliveryIdFromToken();
-
-        var deliveryOrder = await _context.DeliveryOrders
-            .FirstOrDefaultAsync(d =>
-                d.OrderId == orderId &&
-                d.DeliveryId == deliveryId);
-
-        if (deliveryOrder == null)
-            throw new Exception("Not assigned");
-
-        if (deliveryOrder.Status != DeliveryStatus.Pending)
-            throw new Exception("Invalid state");
-
-        deliveryOrder.Status = DeliveryStatus.Picked;
-        deliveryOrder.PickedAt = DateTime.UtcNow;
-
-        await _context.SaveChangesAsync();
-    }
-
-
-
-    // =========================
-    // DELIVER ORDER
-    // =========================
-    public async Task DeliverOrder(Guid orderId)
+    public async Task PickOrder(Guid orderId)
     {
         var deliveryId = GetDeliveryIdFromToken();
 
         var deliveryOrder = await _context.DeliveryOrders
             .Include(d => d.Delivery)
-            .Include(d => d.Order)
             .FirstOrDefaultAsync(d =>
                 d.OrderId == orderId &&
                 d.DeliveryId == deliveryId);
 
         if (deliveryOrder == null)
-            throw new Exception("Not assigned");
+            throw new Exception("Not assigned to you");
 
-        if (deliveryOrder.Status != DeliveryStatus.Picked)
+        if (deliveryOrder.Status != DeliveryOrderStatus.Pending)
             throw new Exception("Invalid state");
 
-        deliveryOrder.Status = DeliveryStatus.Delivered;
-        deliveryOrder.DeliveredAt = DateTime.UtcNow;
-
-        //  update order
-        deliveryOrder.Order.Status = OrderStatus.Delivered;
-        deliveryOrder.Order.DeliveredAt = DateTime.UtcNow;
-
-        // delivery earns money
-        deliveryOrder.Delivery.Balance += deliveryOrder.DeliveryFee;
+        deliveryOrder.Status = DeliveryOrderStatus.Picked;
+        deliveryOrder.PickedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
     }
 
+    // =========================
+    // DELIVER ORDER
+    // ========================
+    public async Task DeliverOrder(Guid orderId)
+    {
+        var strategy = _context.Database.CreateExecutionStrategy();
+
+        await strategy.ExecuteAsync(async () =>
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                var deliveryId = GetDeliveryIdFromToken();
+
+                var deliveryOrder = await _context.DeliveryOrders
+                    .Include(d => d.Delivery)
+                    .Include(d => d.Order)
+                    .FirstOrDefaultAsync(d =>
+                        d.OrderId == orderId &&
+                        d.DeliveryId == deliveryId);
+
+                if (deliveryOrder == null)
+                    throw new Exception("Not assigned to you");
+
+                if (deliveryOrder.Status != DeliveryOrderStatus.Picked)
+                    throw new Exception("Order not picked yet");
+
+                // =========================
+                // UPDATE DELIVERY ORDER
+                // =========================
+                deliveryOrder.Status = DeliveryOrderStatus.Delivered;
+                deliveryOrder.DeliveredAt = DateTime.UtcNow;
+
+                // =========================
+                // UPDATE ORDER
+                // =========================
+                deliveryOrder.Order.Status = OrderStatus.Delivered;
+                deliveryOrder.Order.DeliveredAt = DateTime.UtcNow;
+
+                // =========================
+                // FREE DELIVERY
+                // =========================
+                deliveryOrder.Delivery.Status = DeliveryStatus.Online;
+
+                // =========================
+                // EARNINGS
+                // =========================
+                deliveryOrder.Delivery.Balance += deliveryOrder.DeliveryFee;
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        });
+    }
 
     // =========================
     // GET MY ORDERS (DELIVERY)
@@ -251,6 +269,23 @@ public class DeliveryService
             .ToListAsync();
     }
 
+    // ========================
+    // GET AVAILABLE DELIVERIES (ADMIN)
+    // ========================
+    public async Task<object> GetAvailableDeliveries()
+    {
+        return await _context.Deliveries
+            .AsNoTracking()
+            .Where(d => d.Status == DeliveryStatus.Online)
+            .Select(d => new
+            {
+                d.Id,
+                d.Name,
+                d.VehicleType
+            })
+            .ToListAsync();
+    }
+
     // =========================
     // GET PROFILE
     // =========================
@@ -269,10 +304,7 @@ public class DeliveryService
             delivery.Name,
             delivery.PhoneNumber,
             delivery.VehicleType,
-            delivery.IsAvailable,
-            delivery.IsOnline,
-            delivery.CurrentLatitude,
-            delivery.CurrentLongitude,
+            delivery.Status,
             ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
             delivery.Balance
         };
@@ -319,12 +351,15 @@ public class DeliveryService
             delivery.Name,
             delivery.PhoneNumber,
             delivery.VehicleType,
-            delivery.IsAvailable,
-            delivery.IsOnline,
+            delivery.Status,
             ImageUrl = _fileUrl.GetFullUrl(delivery.ImageUrl),
             delivery.Balance
         };
     }
+
+
+
+
 
    
     // =========================
@@ -335,7 +370,7 @@ public class DeliveryService
         var deliveryId = GetDeliveryIdFromToken();
 
         var delivery = await _context.Deliveries.FindAsync(deliveryId);
-
+        delivery.Status = DeliveryStatus.Offline;
         if (delivery == null)
             throw new Exception("Delivery not found");
 

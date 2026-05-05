@@ -10,13 +10,18 @@ public class Product
 
     public string ImageUrl { get; set; }
 
-    // Relations
+    
+    // =========================
+    // RELATIONS
+    // =========================
     public Guid CategoryId { get; set; }
     public Category Category { get; set; }
 
     public Guid StoreId { get; set; }
     public Store Store { get; set; }
 
-    // Navigation
+    // =========================
+    // VARIANTS
+    // =========================
     public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
 }

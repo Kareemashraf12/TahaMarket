@@ -14,7 +14,8 @@ namespace TahaMarket.Domain.Entities
 
         public decimal Price { get; set; }
 
-        public int StockQuantity { get; set; }
+        public bool IsStockTracked { get; set; } = true;
+        public int? StockQuantity { get; set; }
 
         public Guid ProductId { get; set; }
         public Product Product { get; set; }

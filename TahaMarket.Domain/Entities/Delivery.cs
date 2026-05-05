@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TahaMarket.Domain.Enums;
 
 namespace TahaMarket.Domain.Entities
 {
@@ -17,9 +18,7 @@ namespace TahaMarket.Domain.Entities
 
         public decimal Balance { get; set; }
 
-        public bool IsAvailable { get; set; }
-        public bool IsOnline { get; set; }
-
+        public DeliveryStatus Status { get; set; } = DeliveryStatus.Offline;
         public string VehicleType { get; set; }
 
         public double? CurrentLatitude { get; set; }

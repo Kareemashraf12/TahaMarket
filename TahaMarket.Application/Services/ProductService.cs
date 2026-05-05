@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using TahaMarket.Application.DTOs;
 using TahaMarket.Application.Services.Common;
 using TahaMarket.Domain.Entities;
@@ -26,28 +27,19 @@ public class ProductService
     // =========================
     public async Task<ProductResponse> Create(Guid storeId, CreateProductRequest request)
     {
-        // =========================
-        // VALIDATE CATEGORY
-        // =========================
         var category = await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == request.CategoryId && c.StoreId == storeId);
 
         if (category == null)
             throw new Exception("Category not found");
 
-        // =========================
-        // PARSE VARIANTS
-        // =========================
         List<CreateVariantRequest> variants;
 
         try
         {
-            variants = System.Text.Json.JsonSerializer.Deserialize<List<CreateVariantRequest>>(
+            variants = JsonSerializer.Deserialize<List<CreateVariantRequest>>(
                 request.Variants,
-                new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                }
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
             ) ?? new List<CreateVariantRequest>();
         }
         catch
@@ -61,14 +53,18 @@ public class ProductService
         if (variants.Any(v => v.Price <= 0))
             throw new Exception("Variant price must be greater than 0");
 
-        // =========================
-        // SAVE IMAGE
-        // =========================
+        // STOCK VALIDATION
+        foreach (var v in variants)
+        {
+            if (v.IsStockTracked && (v.StockQuantity == null || v.StockQuantity < 0))
+                throw new Exception($"Variant {v.Size} must have valid stock");
+
+            if (!v.IsStockTracked && v.StockQuantity != null)
+                throw new Exception($"Variant {v.Size} should not have stock");
+        }
+
         var imagePath = await _imageService.SaveImage(request.Image, "images/products");
 
-        // =========================
-        // CREATE PRODUCT
-        // =========================
         var product = new Product
         {
             Name = request.Name,
@@ -76,10 +72,13 @@ public class ProductService
             ImageUrl = imagePath,
             CategoryId = request.CategoryId,
             StoreId = storeId,
+
             Variants = variants.Select(v => new ProductVariant
             {
                 Name = v.Size,
-                Price = v.Price
+                Price = v.Price,
+                IsStockTracked = v.IsStockTracked,
+                StockQuantity = v.IsStockTracked ? v.StockQuantity : null
             }).ToList()
         };
 
@@ -88,9 +87,6 @@ public class ProductService
 
         var minPrice = product.Variants.Min(v => v.Price);
 
-        // =========================
-        // RESPONSE
-        // =========================
         return new ProductResponse
         {
             Id = product.Id,
@@ -98,19 +94,20 @@ public class ProductService
             ImageUrl = _fileUrl.GetFullUrl(product.ImageUrl),
             CategoryId = product.CategoryId,
             CategoryName = category.Name,
+
             OldPrice = minPrice,
             FinalPrice = minPrice,
-            HasDiscount = false,
-            DiscountPercentage = 0,
+
             Variants = product.Variants.Select(v => new ProductVariantResponse
             {
                 Id = v.Id,
                 Size = v.Name,
-                Price = v.Price
+                Price = v.Price,
+                IsStockTracked = v.IsStockTracked,
+                StockQuantity = v.StockQuantity
             }).ToList()
         };
     }
-
     // =========================
     // GET ALL (HOME OPTIMIZED)
     // =========================
@@ -127,10 +124,16 @@ public class ProductService
                 p.ImageUrl,
                 p.CategoryId,
 
+                // =========================
+                // PRICE
+                // =========================
                 MinPrice = p.Variants.Any()
                     ? p.Variants.Min(v => v.Price)
                     : 0,
 
+                // =========================
+                // DISCOUNT
+                // =========================
                 Discount = _context.Offers
                     .Where(o =>
                         o.IsActive &&
@@ -145,12 +148,27 @@ public class ProductService
                     .Select(o => (decimal?)o.DiscountPercentage)
                     .FirstOrDefault() ?? 0,
 
+                // =========================
+                // RATING
+                // =========================
                 AvgRating = _context.Ratings
                     .Where(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
                     .Average(r => (double?)r.Value) ?? 0,
 
                 CountRating = _context.Ratings
-                    .Count(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
+                    .Count(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id),
+
+                // =========================
+                // VARIANTS (IMPORTANT CHANGE)
+                // =========================
+                Variants = p.Variants.Select(v => new
+                {
+                    v.Id,
+                    v.Name,
+                    v.Price,
+                    v.IsStockTracked,
+                    v.StockQuantity
+                }).ToList()
             });
 
         var totalCount = await query.CountAsync();
@@ -175,7 +193,19 @@ public class ProductService
                 : p.MinPrice,
 
             AverageRating = p.AvgRating,
-            RatingsCount = p.CountRating
+            RatingsCount = p.CountRating,
+
+            // =========================
+            // VARIANTS WITH STOCK
+            // =========================
+            Variants = p.Variants.Select(v => new ProductVariantResponse
+            {
+                Id = v.Id,
+                Size = v.Name,
+                Price = v.Price,
+                IsStockTracked = v.IsStockTracked,
+                StockQuantity = v.StockQuantity
+            }).ToList()
         }).ToList();
 
         return new PaginatedResponse<ProductListDto>
@@ -192,6 +222,8 @@ public class ProductService
     // =========================
     public async Task<ProductDetailsDto> GetDetails(Guid productId)
     {
+        var now = DateTime.UtcNow;
+
         var product = await _context.Products
             .Where(p => p.Id == productId)
             .Select(p => new ProductDetailsDto
@@ -207,13 +239,41 @@ public class ProductService
                 CategoryId = p.CategoryId,
                 CategoryName = p.Category.Name,
 
+                // =========================
+                // VARIANTS
+                // =========================
                 Variants = p.Variants.Select(v => new ProductVariantDto
                 {
                     Id = v.Id,
                     Name = v.Name,
-                    Price = v.Price
+                    Price = v.Price,
+                    StockQuantity = v.StockQuantity,
+                    IsStockTracked = v.IsStockTracked
                 }).ToList(),
 
+                // =========================
+                // ADD-ONS
+                // =========================
+                AddOnGroups = _context.AddOnGroups
+                    .Where(g => g.ProductId == p.Id && g.IsActive)
+                    .Select(g => new AddOnGroupDto
+                    {
+                        Id = g.Id,
+                        Name = g.Name,
+
+                        Options = g.Options
+                            .Where(o => o.IsActive)
+                            .Select(o => new AddOnOptionDto
+                            {
+                                Id = o.Id,
+                                Name = o.Name,
+                                Price = o.Price
+                            }).ToList()
+                    }).ToList(),
+
+                // =========================
+                // PRICES
+                // =========================
                 MinPrice = p.Variants.Any()
                     ? p.Variants.Min(v => v.Price)
                     : 0,
@@ -222,6 +282,47 @@ public class ProductService
                     ? p.Variants.Max(v => v.Price)
                     : 0,
 
+                // =========================
+                //  DISCOUNT (IMPORTANT)
+                // =========================
+                DiscountPercentage = _context.Offers
+                    .Where(o =>
+                        o.IsActive &&
+                        o.StartDate <= now &&
+                        o.EndDate >= now &&
+                        (
+                            (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
+                            (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId)
+                        ))
+                    .Select(o => (decimal?)o.DiscountPercentage)
+                    .Max() ?? 0,
+
+                OldPrice = p.Variants.Any()
+                    ? p.Variants.Min(v => v.Price)
+                    : 0,
+
+        
+                FinalPrice = p.Variants.Any()
+                    ? p.Variants.Min(v => v.Price) -
+                      (p.Variants.Min(v => v.Price) *
+                       (
+                           _context.Offers
+                               .Where(o =>
+                                   o.IsActive &&
+                                   o.StartDate <= now &&
+                                   o.EndDate >= now &&
+                                   (
+                                       (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
+                                       (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId)
+                                   ))
+                               .Select(o => (decimal?)o.DiscountPercentage)
+                               .Max() ?? 0
+                       ) / 100)
+                    : 0,
+
+                // =========================
+                // RATING
+                // =========================
                 Rating = new RatingSummaryDto
                 {
                     Count = _context.Ratings.Count(r =>
@@ -261,7 +362,6 @@ public class ProductService
 
         return product;
     }
-
     // ===========================
     // Get By Category 
     // ===========================
@@ -325,22 +425,24 @@ public class ProductService
     {
         var product = await _context.Products
             .Include(p => p.Variants)
-            .FirstOrDefaultAsync(p => p.Id == productId && p.StoreId == storeId);
+            .FirstOrDefaultAsync(p =>
+                p.Id == productId &&
+                p.StoreId == storeId);
 
         if (product == null)
-            throw new Exception("Product not found");
+            throw new Exception("Product not found or not allowed");
 
         // =========================
-        // UPDATE BASIC DATA
+        // BASIC DATA UPDATE
         // =========================
-        if (!string.IsNullOrEmpty(request.Name))
+        if (!string.IsNullOrWhiteSpace(request.Name))
             product.Name = request.Name;
 
         if (request.Description != null)
             product.Description = request.Description;
 
         // =========================
-        // UPDATE IMAGE
+        // IMAGE UPDATE
         // =========================
         if (request.Image != null)
         {
@@ -351,71 +453,173 @@ public class ProductService
         }
 
         // =========================
-        // UPDATE VARIANTS
+        // VARIANTS UPDATE (NO ID LOSS)
         // =========================
-        if (!string.IsNullOrEmpty(request.Variants))
+        if (!string.IsNullOrWhiteSpace(request.Variants))
         {
-            List<CreateVariantRequest> variants;
-
-            try
-            {
-                variants = System.Text.Json.JsonSerializer.Deserialize<List<CreateVariantRequest>>(
-                    request.Variants,
-                    new System.Text.Json.JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    }
-                ) ?? new List<CreateVariantRequest>();
-            }
-            catch
-            {
-                throw new Exception("Invalid variants format");
-            }
+            var variants = JsonSerializer.Deserialize<List<CreateVariantRequest>>(
+                request.Variants,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }
+            ) ?? new List<CreateVariantRequest>();
 
             if (!variants.Any())
-                throw new Exception("Product must have at least one variant");
+                throw new Exception("At least one variant required");
 
             if (variants.Any(v => v.Price <= 0))
                 throw new Exception("Invalid variant price");
 
-           
-            _context.ProductVariants.RemoveRange(product.Variants);
-
-            
-            product.Variants = variants.Select(v => new ProductVariant
+            // =========================
+            // UPDATE EXISTING VARIANTS
+            // =========================
+            foreach (var existing in product.Variants.ToList())
             {
-                Name = v.Size,
-                Price = v.Price
-            }).ToList();
+                var updated = variants.FirstOrDefault(v => v.Id == existing.Id);
+
+                if (updated != null)
+                {
+                    existing.Name = updated.Size;
+                    existing.Price = updated.Price;
+
+                    // STOCK UPDATE
+                    existing.IsStockTracked = updated.IsStockTracked;
+                    existing.StockQuantity = updated.IsStockTracked
+                        ? updated.StockQuantity
+                        : null;
+                }
+            }
+
+            // =========================
+            // ADD NEW VARIANTS
+            // =========================
+            var newVariants = variants
+                .Where(v => v.Id == Guid.Empty)
+                .Select(v => new ProductVariant
+                {
+                    Name = v.Size,
+                    Price = v.Price,
+                    IsStockTracked = v.IsStockTracked,
+                    StockQuantity = v.IsStockTracked ? v.StockQuantity : null
+                });
+
+            foreach (var v in newVariants)
+            {
+                product.Variants.Add(v);
+            }
+
+            // =========================
+            // DELETE REMOVED VARIANTS
+            // =========================
+            var incomingIds = variants
+                .Where(v => v.Id != Guid.Empty)
+                .Select(v => v.Id)
+                .ToList();
+
+            var toRemove = product.Variants
+                .Where(v => !incomingIds.Contains(v.Id))
+                .ToList();
+
+            _context.ProductVariants.RemoveRange(toRemove);
         }
 
         await _context.SaveChangesAsync();
     }
 
-    public async Task Delete(Guid productId, Guid storeId)
+    // =======================
+    // DELETE
+    // =======================
+    public async Task Delete(Guid productId, Guid? storeId, string role)
     {
         var product = await _context.Products
-            .FirstOrDefaultAsync(p => p.Id == productId && p.StoreId == storeId);
+            .FirstOrDefaultAsync(p => p.Id == productId);
 
         if (product == null)
             throw new Exception("Product not found");
 
-        // delete ratings
+        // =========================
+        // AUTHORIZATION
+        // =========================
+        if (string.Equals(role, "store", StringComparison.OrdinalIgnoreCase))
+        {
+            if (storeId == null)
+                throw new Exception("StoreId missing");
+
+            if (product.StoreId != storeId.Value)
+                throw new Exception("Not allowed to delete this product");
+        }
+
+        // =========================
+        // DELETE RELATED DATA
+        // =========================
+
+        // Ratings
         var ratings = _context.Ratings.Where(r =>
             r.TargetType == RatingTargetType.Product &&
             r.TargetId == productId);
 
         _context.Ratings.RemoveRange(ratings);
 
-        // delete product
+        // Cart Items 
+        var cartItems = _context.CartItems
+            .Where(c => c.ProductId == productId);
+
+        var cartItemIds = cartItems.Select(c => c.Id);
+
+        // CartItem AddOns
+        var cartAddOns = _context.Set<CartItemAddOn>()
+            .Where(a => cartItemIds.Contains(a.CartItemId));
+
+        _context.RemoveRange(cartAddOns);
+        _context.RemoveRange(cartItems);
+
+        // Variants
+        var variants = _context.ProductVariants
+            .Where(v => v.ProductId == productId);
+
+        _context.ProductVariants.RemoveRange(variants);
+
+        // AddOnGroups + Options
+        var groups = _context.AddOnGroups
+            .Where(g => g.ProductId == productId);
+
+        var groupIds = groups.Select(g => g.Id);
+
+        var options = _context.AddOnOptions
+            .Where(o => groupIds.Contains(o.AddOnGroupId));
+
+        _context.AddOnOptions.RemoveRange(options);
+        _context.AddOnGroups.RemoveRange(groups);
+
+        
+        var orderItems = _context.OrderItems
+            .Where(o => o.ProductId == productId);
+
+        _context.OrderItems.RemoveRange(orderItems);
+
+        // =========================
+        // DELETE PRODUCT
+        // =========================
         _context.Products.Remove(product);
 
         await _context.SaveChangesAsync();
     }
-
+    // ===========================
+    // Get Hot Offers (>= 50% discount)
+    // ===========================
     public async Task<List<SpecialProductDto>> GetHotOffers()
     {
         var now = DateTime.UtcNow;
+
+        var activeOffers = _context.Offers
+            .Where(o =>
+                o.IsActive &&
+                o.StartDate <= now &&
+                o.EndDate >= now);
+
+        var ratings = _context.Ratings
+            .Where(r => r.TargetType == RatingTargetType.Product);
 
         var products = await _context.Products
             .Where(p => p.Variants.Any())
@@ -427,6 +631,143 @@ public class ProductService
                 p.StoreId,
                 p.CategoryId,
 
+                MinPrice = p.Variants.Min(v => v.Price),
+
+                Discount = activeOffers
+                    .Where(o =>
+                        (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
+                        (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId))
+                    .Select(o => (decimal?)o.DiscountPercentage)
+                    .Max() ?? 0,
+
+                AvgRating = ratings
+                    .Where(r => r.TargetId == p.Id)
+                    .Average(r => (double?)r.Value) ?? 0
+            })
+            .Where(p => p.Discount >= 50)
+            .ToListAsync();
+
+        return products.Select(p => new SpecialProductDto
+        {
+            Label = "عروض ما تتفوتش",
+            ProductId = p.Id,
+            ProductName = p.Name,
+            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+            StoreId = p.StoreId,
+            CategoryId = p.CategoryId,
+
+            AverageRating = p.AvgRating,
+
+            OldPrice = p.MinPrice,
+
+            FinalPrice = p.MinPrice - (p.MinPrice * p.Discount / 100),
+
+            HasDiscount = p.Discount > 0,
+            DiscountPercentage = p.Discount
+        }).ToList();
+    }
+    // ===========================
+    // Get Top Selling Products
+    // ===========================
+    public async Task<List<SpecialProductDto>> GetTopSellingProducts(int take = 10)
+    {
+        var now = DateTime.UtcNow;
+
+        var topSelling = _context.OrderItems
+            .GroupBy(oi => oi.ProductId)
+            .Select(g => new
+            {
+                ProductId = g.Key,
+                Count = g.Count()
+            });
+
+        var products = await topSelling
+            .OrderByDescending(ts => ts.Count)
+            .Take(take)
+            .Join(_context.Products.AsNoTracking(),
+                ts => ts.ProductId,
+                p => p.Id,
+                (ts, p) => new
+                {
+                    p.Id,
+                    p.Name,
+                    p.ImageUrl,
+                    p.StoreId,
+                    p.CategoryId,
+
+                    // ✅ SAFE MIN
+                    MinPrice = p.Variants
+                        .Select(v => (decimal?)v.Price)
+                        .Min() ?? 0,
+
+                    Discount = _context.Offers
+                        .Where(o =>
+                            o.IsActive &&
+                            o.StartDate <= now &&
+                            o.EndDate >= now &&
+                            (
+                                (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
+                                (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId)
+                            ))
+                        .Select(o => (decimal?)o.DiscountPercentage)
+                        .Max() ?? 0,
+
+                    AvgRating = _context.Ratings
+                        .Where(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
+                        .Select(r => (double?)r.Value)
+                        .Average() ?? 0
+                })
+            .ToListAsync();
+
+        return products.Select(p => new SpecialProductDto
+        {
+            Label = "الأكثر مبيعًا",
+            ProductId = p.Id,
+            ProductName = p.Name,
+            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+            StoreId = p.StoreId,
+            CategoryId = p.CategoryId,
+
+            AverageRating = p.AvgRating,
+
+            OldPrice = p.MinPrice,
+
+            FinalPrice = p.Discount > 0
+                ? p.MinPrice - (p.MinPrice * p.Discount / 100)
+                : p.MinPrice,
+
+            HasDiscount = p.Discount > 0,
+            DiscountPercentage = p.Discount
+        }).ToList();
+    }
+    // ===========================
+    // Get Daily Offers (Active Offers)
+    // ===========================
+    public async Task<PaginatedResponse<ProductListDto>> GetDailyOffers(PaginationRequest request)
+    {
+        var now = DateTime.UtcNow;
+
+        var query = _context.Products
+            .AsNoTracking()
+            .Where(p =>
+                _context.Offers.Any(o =>
+                    o.IsActive &&
+                    o.StartDate <= now &&
+                    o.EndDate >= now &&
+                    (
+                        (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
+                        (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId)
+                    )
+                )
+            )
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.ImageUrl,
+
+                MinPrice = p.Variants.Min(v => v.Price),
+
                 Discount = _context.Offers
                     .Where(o =>
                         o.IsActive &&
@@ -436,68 +777,64 @@ public class ProductService
                             (o.TargetType == OfferTargetType.Product && o.TargetId == p.Id) ||
                             (o.TargetType == OfferTargetType.Category && o.TargetId == p.CategoryId)
                         ))
-                    .OrderByDescending(o => o.TargetType == OfferTargetType.Product)
-                    .ThenByDescending(o => o.DiscountPercentage)
                     .Select(o => (decimal?)o.DiscountPercentage)
-                    .FirstOrDefault() ?? 0,
+                    .Max() ?? 0,
 
-                AvgRating = _context.Ratings
-                    .Where(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
-                    .Average(r => (double?)r.Value) ?? 0
-            })
-            .Where(p => p.Discount >= 50)
+                AverageRating = _context.Ratings
+                    .Where(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id)
+                    .Select(r => (double?)r.Value)
+                    .Average() ?? 0,
+
+                RatingsCount = _context.Ratings
+                    .Count(r =>
+                        r.TargetType == RatingTargetType.Product &&
+                        r.TargetId == p.Id)
+            });
+
+        // =========================
+        // COUNT
+        // =========================
+        var totalCount = await query.CountAsync();
+
+        // =========================
+        // PAGINATION
+        // =========================
+        var data = await query
+            .OrderByDescending(p => p.Discount)
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
             .ToListAsync();
 
-        return products.Select(p => new SpecialProductDto
+        // =========================
+        // MAP
+        // =========================
+        var result = data.Select(p => new ProductListDto
         {
-            Label = " عروض ما تتفوتش",
-            ProductId = p.Id,
-            ProductName = p.Name,
-            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl), 
-            StoreId = p.StoreId,
-            CategoryId = p.CategoryId,
-            AverageRating = p.AvgRating
+            Id = p.Id,
+            Name = p.Name,
+            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl),
+
+            OldPrice = p.MinPrice,
+
+            DiscountPercentage = p.Discount,
+            HasDiscount = p.Discount > 0,
+
+            FinalPrice = p.Discount > 0
+                ? p.MinPrice - (p.MinPrice * p.Discount / 100)
+                : p.MinPrice,
+
+            AverageRating = Math.Round(p.AverageRating, 1),
+            RatingsCount = p.RatingsCount
         }).ToList();
-    }
 
-
-    public async Task<List<SpecialProductDto>> GetTopSellingProducts(int take = 10)
-    {
-        var products = await _context.OrderItems
-            .GroupBy(oi => oi.ProductId)
-            .Select(g => new
-            {
-                ProductId = g.Key,
-                Count = g.Count()
-            })
-            .OrderByDescending(x => x.Count)
-            .Take(take)
-            .Join(_context.Products,
-                x => x.ProductId,
-                p => p.Id,
-                (x, p) => new
-                {
-                    p.Id,
-                    p.Name,
-                    p.ImageUrl,
-                    p.StoreId,
-                    p.CategoryId,
-
-                    AvgRating = _context.Ratings
-                        .Where(r => r.TargetType == RatingTargetType.Product && r.TargetId == p.Id)
-                        .Average(r => (double?)r.Value) ?? 0
-                })
-            .ToListAsync();
-
-        return products.Select(p => new SpecialProductDto
+        return new PaginatedResponse<ProductListDto>
         {
-            Label = " الأكثر مبيعًا",
-            ProductId = p.Id,
-            ProductName = p.Name,
-            ImageUrl = _fileUrl.GetFullUrl(p.ImageUrl), 
-            StoreId = p.StoreId,
-            CategoryId = p.CategoryId,
-            AverageRating = p.AvgRating
-        }).ToList();
+            Page = request.Page,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
+            Data = result
+        };
     }
 }

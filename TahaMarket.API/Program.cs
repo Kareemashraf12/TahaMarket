@@ -32,14 +32,24 @@ builder.Services.AddScoped<DeliveryService>();
 builder.Services.AddScoped<FileUrlService>();
 builder.Services.AddScoped<DistanceService>();
 builder.Services.AddScoped<DeliveryPricingService>();
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<UserAddressService>();
 builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<StoreSectionService>();
 builder.Services.AddScoped<OfferService>();
 builder.Services.AddScoped<SearchService>();
 builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<PaymobService>();
+builder.Services.AddScoped<PaymobWebhookService>();
+builder.Services.AddScoped<PaymobSecurityService>();
+
 builder.Services.AddScoped<FavoriteService>();
-builder.Services.AddMemoryCache();
+builder.Services.AddScoped<CartService>();
+builder.Services.AddHttpClient<PaymobService>();
+builder.Services.AddScoped<ExternalDeliveryService>();
+builder.Services.AddScoped<AddOnService>();
+
+
 
 
 

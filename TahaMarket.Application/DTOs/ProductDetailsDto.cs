@@ -16,6 +16,9 @@ namespace TahaMarket.Application.DTOs
 
         public string ImageUrl { get; set; }
 
+        public bool HasStock { get; set; }
+        public int? StockQuantity { get; set; }
+
         // Store
         public Guid StoreId { get; set; }
         public string StoreName { get; set; }
@@ -27,6 +30,12 @@ namespace TahaMarket.Application.DTOs
         // Variants
         public List<ProductVariantDto> Variants { get; set; }
 
+        //  ADD-ONS 
+        public List<AddOnGroupDto> AddOnGroups { get; set; }
+
+        public decimal DiscountPercentage { get; set; }
+        public decimal FinalPrice { get; set; }
+        public decimal OldPrice { get; set; }
         // Price summary
         public decimal MinPrice { get; set; }
         public decimal MaxPrice { get; set; }

@@ -17,7 +17,7 @@ namespace TahaMarket.Domain.Entities
         public decimal DeliveryFee { get; set; }
 
    
-        public DeliveryStatus Status { get; set; } = DeliveryStatus.Pending;
+        public DeliveryOrderStatus Status { get; set; } = DeliveryOrderStatus.Pending;
 
        
         public DateTime AssignedAt { get; set; } = DateTime.UtcNow;
